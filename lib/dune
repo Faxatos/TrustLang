@@ -1,2 +1,4 @@
 (library
- (name TrustLang))
+ (public_name TrustLang)
+ (name minicaml)
+ (modules ast types interpreter minicaml))
