@@ -1,8 +1,19 @@
 (* Identifiers *)
 type ide = string
 
-(* Types *)
-type tname = TInt | TBool | TString | TClosure | TRecClosure | TUnBound
+(* Trust levels *)
+type trust_level = Trust | Untrust
+
+(* Extended types with trust annotations *)
+type tname = 
+    | TInt of trust_level
+    | TBool of trust_level 
+    | TString of trust_level
+    | TClosure of trust_level
+    | TRecClosure of trust_level
+    | TModule of trust_level
+    | TPlugin
+    | TUnBound
 
 (* Abstract Expressions = expressions in abstract syntax, 
    they compose the Abstract Syntax Tree *)
@@ -12,17 +23,17 @@ type exp =
     | CstFalse
     | EString of string
     | Den of ide
-    (* Binary operators from integers to integers *)
+    (* Arithmetic operations *)
     | Sum of exp * exp
     | Diff of exp * exp
     | Prod of exp * exp
     | Div of exp * exp
-    (* Operators from integers to booleans *)
+    (* Comparison operations *)
     | IsZero of exp
     | Eq of exp * exp
     | LessThan of exp * exp
     | GreaterThan of exp * exp
-    (* Boolean operators *)
+    (* Boolean operations *)
     | And of exp * exp
     | Or of exp * exp
     | Not of exp
@@ -32,15 +43,31 @@ type exp =
     | Letrec of ide * ide * exp * exp
     | Fun of ide * exp
     | Apply of exp * exp
+    (* Trust primitives *)
+    | TrustLet of ide * trust_level * exp * exp
+    | Validate of exp
+    | Module of ide * module_content * exp list
+    | ModuleAccess of exp * ide
+    | Include of exp
+    | Execute of exp * exp * exp
+    | Assert of ide * trust_level
 
-(* Polymorphic environment *)
+(* Module content structure *)
+and module_content = 
+    | ModuleLet of ide * trust_level * exp * module_content
+    | ModuleLetNested of ide * module_content
+    | ModuleEnd
+
+(* Polymorphic Environment *)
 type 't env = ide -> 't
 
-(* Evaluation types = expressible types *)
+(* Extended evaluation types with trust information *)
 type evT = 
-    | Int of int 
-    | Bool of bool 
-    | String of string 
-    | Closure of ide * exp * evT env 
-    | RecClosure of ide * ide * exp * evT env
+    | Int of int * trust_level
+    | Bool of bool * trust_level
+    | String of string * trust_level
+    | Closure of ide * exp * evT env * trust_level
+    | RecClosure of ide * ide * exp * evT env * trust_level
+    | Module of ide * (ide * evT) list * ide list * evT env
+    | Plugin of exp * evT env
     | UnBound
