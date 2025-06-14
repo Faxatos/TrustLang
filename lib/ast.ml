@@ -80,8 +80,9 @@ type exp =
 
 (* Module content structure *)
 and module_content = 
-    | ModuleLet of ide * trust_level * exp * module_content
-    | ModuleLetNested of ide * module_content
+    | ModuleLet of ide * trust_level * exp * module_content (* Explicit trust level required *)
+    | ModuleFun of ide * trust_signature * exp * module_content
+    | ModuleEntry of ide * module_content
     | ModuleEnd
 
 (* Polymorphic Environment *)
@@ -94,6 +95,7 @@ type evT =
     | String of string * trust_level
     | Closure of ide * exp * evT env * trust_level
     | RecClosure of ide * ide * exp * evT env * trust_level
+    | TrustClosure of trust_signature * exp * evT env
     | Module of ide * (ide * evT) list * ide list * evT env
     | Plugin of exp * evT env
     | UnBound
