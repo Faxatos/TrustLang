@@ -15,6 +15,26 @@ type tname =
     | TPlugin
     | TUnBound
 
+(* Parameter with trust annotation *)
+type trust_param = {
+    param_name : ide;
+    param_trust : trust_level;
+}
+
+(* Function signature with trust annotations *)
+type trust_signature = {
+    params : trust_param list;
+    return_trust : trust_level;
+}
+
+(* Pattern matching types *)
+type pattern = 
+    | PVar of ide                    (* Variable pattern *)
+    | PConst of exp                  (* Constant pattern *)
+    | PWildcard                      (* Wildcard pattern _ *)
+
+type match_case = pattern * exp      (* Pattern and corresponding expression *)
+
 (* Abstract Expressions = expressions in abstract syntax, 
    they compose the Abstract Syntax Tree *)
 type exp = 
@@ -43,8 +63,14 @@ type exp =
     | Letrec of ide * ide * exp * exp
     | Fun of ide * exp
     | Apply of exp * exp
+    (* Pattern matching *)
+    | Match of exp * match_case list
+    (* String operations *)
+    | StrContains of exp * exp
+    | StrLength of exp
     (* Trust primitives *)
     | TrustLet of ide * trust_level * exp * exp
+    | TrustFun of trust_signature * exp
     | Validate of exp
     | Module of ide * module_content * exp list
     | ModuleAccess of exp * ide
