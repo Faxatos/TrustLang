@@ -329,3 +329,10 @@ let rec eval (e:exp) (s:evT env) : evT =
         let actual_trust = getTrustLevel value in
         if actual_trust = expected_trust then value
         else raise (SecurityError ("Trust assertion failed for " ^ id))
+
+    | Match(e, cases) -> 
+        let value = eval e s in
+        eval_match_cases value cases s
+        
+    | StrContains(e1, e2) -> str_contains((eval e1 s), (eval e2 s))
+    | StrLength(e1) -> str_length(eval e1 s)
