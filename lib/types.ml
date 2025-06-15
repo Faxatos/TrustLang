@@ -10,7 +10,7 @@ let rec getTrustLevel (x: evT) : trust_level =
     | Int(_, t) | Bool(_, t) | String(_, t) -> t
     | Closure(_, _, _, t) | RecClosure(_, _, _, _, t) -> t
     | TrustClosure(signature, _, _) -> signature.return_trust
-    | Module(_, bindings, _, _, module_trust) -> module_trust
+    | Module(_, _, _, _, module_trust) -> module_trust
     | Plugin(_, _) -> Untrust
     | UnBound -> Untrust
 
@@ -30,7 +30,7 @@ let getType (x: evT) : tname =
     | Closure(_, _, _, t) -> TClosure(t)
     | RecClosure(_, _, _, _, t) -> TRecClosure(t)
     | TrustClosure(signature, _, _) -> TClosure(signature.return_trust)
-    | Module(_, bindings, _, _, module_trust) -> TModule(module_trust)
+    | Module(_, _, _, _, module_trust) -> TModule(module_trust)
     | Plugin(_, _) -> TPlugin
     | UnBound -> TUnBound
 
@@ -93,7 +93,7 @@ let rec expressionMightContainTrustedFunctions (expr: exp) (env: evT env) : bool
         (match env id with
          | UnBound -> false
          | value -> containsTrustedFunctions value)
-    | ModuleAccess(module_expr, _) ->
+    | ModuleAccess(_, _) ->
         (* Module access might return trusted functions *)
         true
     | Apply(_, _) -> 
@@ -104,6 +104,6 @@ let rec expressionMightContainTrustedFunctions (expr: exp) (env: evT env) : bool
     | IfThenElse(_, then_expr, else_expr) ->
         expressionMightContainTrustedFunctions then_expr env ||
         expressionMightContainTrustedFunctions else_expr env
-    | TrustFun(sig, _) when sig.return_trust = Trust -> true
+    | TrustFun(signature, _) when signature.return_trust = Trust -> true
     | Fun(_, _) -> false  (* Regular functions are untrusted by default *)
     | _ -> false
