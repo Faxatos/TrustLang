@@ -50,7 +50,7 @@ let typecheck ((expected, actual) : (tname * evT)) : bool =
     | (TRecClosure(Trust), RecClosure(_, _, _, _, Trust)) -> true
     | (TRecClosure(Untrust), RecClosure(_, _, _, _, _)) -> true
     | (TModule(Trust), Module(_, _, _, _, Trust)) -> true
-    | (TModule(Untrust), Module(_, _, _, _, _)) -> true  (* Untrusted context accepts any module *)
+    | (TModule(Untrust), Module(_, _, _, _, _)) -> true
     | (TPlugin, Plugin(_, _)) -> true
     | (TUnBound, UnBound) -> true
     | _ -> false
@@ -73,7 +73,7 @@ let validateParams (params: trust_param list) (args: evT list) : bool =
             let arg_trust = getTrustLevel arg in
             match param.param_trust with
             | Trust -> arg_trust = Trust
-            | Untrust -> true  (* Untrusted parameters accept any trust level *)
+            | Untrust -> true
         ) params args
 
 (* Check if a value contains trusted functions *)
@@ -93,17 +93,13 @@ let rec expressionMightContainTrustedFunctions (expr: exp) (env: evT env) : bool
         (match env id with
          | UnBound -> false
          | value -> containsTrustedFunctions value)
-    | ModuleAccess(_, _) ->
-        (* Module access might return trusted functions *)
-        true
-    | Apply(_, _) -> 
-        (* Function application might return trusted functions *)
-        true
+    | ModuleAccess(_, _) -> true
+    | Apply(_, _) -> true
     | Let(_, _, body) | TrustLet(_, _, _, body) -> 
         expressionMightContainTrustedFunctions body env
     | IfThenElse(_, then_expr, else_expr) ->
         expressionMightContainTrustedFunctions then_expr env ||
         expressionMightContainTrustedFunctions else_expr env
     | TrustFun(signature, _) when signature.return_trust = Trust -> true
-    | Fun(_, _) -> false  (* Regular functions are untrusted by default *)
+    | Fun(_, _) -> false
     | _ -> false
