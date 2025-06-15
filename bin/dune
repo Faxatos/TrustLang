@@ -1,4 +1,4 @@
 (executable
  (public_name TrustLang)
  (name main)
- (libraries minicaml))
+ (libraries TrustLang))

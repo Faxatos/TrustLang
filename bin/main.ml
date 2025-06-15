@@ -1,4 +1,4 @@
-open Minicaml
+open TrustLang
 
 let () =
     print_endline "Trust-Aware MiniCaml Interpreter";
