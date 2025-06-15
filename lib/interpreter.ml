@@ -27,7 +27,7 @@ let rec bind_params (env: evT env) (params: trust_param list) (args: evT list) :
 (* Trust validation function *)
 let is_safe_content (content: string) : bool =
     not (String.contains content '$' || 
-         Str.string_match (Str.regexp ".*malicious.*") content 0)
+         String.contains content 'm')
 
 (* -----LANGUAGE PRIMITIVES----- *)
 
@@ -119,13 +119,22 @@ let str_contains(x, y) =
     match (x, y) with
     | (String(str, t1), String(substr, t2)) ->
         let result_trust = min_trust_level [t1; t2] in
-        let contains = try 
-            let _ = Str.search_forward (Str.regexp_string substr) str 0 in true
-        with Not_found -> false in
-        Bool(contains, result_trust)
+        (* Simple string contains check *)
+        let rec contains s sub =
+            let len_s = String.length s and len_sub = String.length sub in
+            if len_sub = 0 then true
+            else if len_s < len_sub then false
+            else
+                let rec check i =
+                    if i > len_s - len_sub then false
+                    else if String.sub s i len_sub = sub then true
+                    else check (i + 1)
+                in check 0
+        in
+        Bool(contains str substr, result_trust)
     | _ -> raise (TrustViolation "Type mismatch in string contains")
 
-let trust_str_length(x) =
+let str_length(x) =
     match x with
     | String(str, t) -> Int(String.length str, t)
     | _ -> raise (TrustViolation "Type mismatch in string length")
@@ -270,9 +279,9 @@ let rec eval (e:exp) (s:evT env) : evT =
                      let accessed_value = List.assoc method_name bindings in
                      let accessed_trust = getTrustLevel accessed_value in
                      if module_trust = Trust && accessed_trust = Trust then
-                         Printf.printf "SECURE ACCESS: Trusted module method '%s' accessed\n" method_name
+                         Printf.printf "Trusted module method '%s' accessed\n" method_name
                      else if module_trust = Untrust then
-                         Printf.printf "UNTRUSTED ACCESS: Untrusted module method '%s' accessed\n" method_name;
+                         Printf.printf "Untrusted module method '%s' accessed\n" method_name;
                      accessed_value
                   with Not_found -> raise (ModuleError ("Method " ^ method_name ^ " not found in module")))
              else raise (SecurityError ("Method " ^ method_name ^ " is not an entry point"))

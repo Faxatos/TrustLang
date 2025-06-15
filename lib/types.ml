@@ -4,22 +4,22 @@ open Ast
 let min_trust_level (levels: trust_level list) : trust_level =
     if List.for_all (fun t -> t = Trust) levels then Trust else Untrust
 
-(* Calculate module trust level based on its contents *)
-let calculate_module_trust (bindings: (ide * evT) list) : trust_level =
-    if bindings = [] then Trust  (* Empty module is trusted *)
-    else
-        let trust_levels = List.map (fun (_, value) -> getTrustLevel value) bindings in
-        min_trust_level trust_levels
-
-(* Extract trust level from evaluation type *)
-and getTrustLevel (x: evT) : trust_level =
+(* Extract trust level from eval type *)
+let rec getTrustLevel (x: evT) : trust_level =
     match x with
     | Int(_, t) | Bool(_, t) | String(_, t) -> t
     | Closure(_, _, _, t) | RecClosure(_, _, _, _, t) -> t
-    | TrustClosure(sig, _, _) -> sig.return_trust
-    | Module(_, bindings, _, _, module_trust) -> module_trust  (* Use calculated trust *)
+    | TrustClosure(signature, _, _) -> signature.return_trust
+    | Module(_, bindings, _, _, module_trust) -> module_trust
     | Plugin(_, _) -> Untrust
     | UnBound -> Untrust
+
+(* Calculate module trust level based on its contents *)
+and calculate_module_trust (bindings: (ide * evT) list) : trust_level =
+    if bindings = [] then Trust
+    else
+        let trust_levels = List.map (fun (_, value) -> getTrustLevel value) bindings in
+        min_trust_level trust_levels
 
 (* Function from evT to tname that maps each value to its type descriptor *)
 let getType (x: evT) : tname =
@@ -29,7 +29,7 @@ let getType (x: evT) : tname =
     | String(_, t) -> TString(t)
     | Closure(_, _, _, t) -> TClosure(t)
     | RecClosure(_, _, _, _, t) -> TRecClosure(t)
-    | TrustClosure(sig, _, _) -> TClosure(sig.return_trust)
+    | TrustClosure(signature, _, _) -> TClosure(signature.return_trust)
     | Module(_, bindings, _, _, module_trust) -> TModule(module_trust)
     | Plugin(_, _) -> TPlugin
     | UnBound -> TUnBound
@@ -44,7 +44,7 @@ let typecheck ((expected, actual) : (tname * evT)) : bool =
     | (TString(Trust), String(_, Trust)) -> true
     | (TString(Untrust), String(_, _)) -> true
     | (TClosure(Trust), Closure(_, _, _, Trust)) -> true
-    | (TClosure(Trust), TrustClosure(sig, _, _)) when sig.return_trust = Trust -> true
+    | (TClosure(Trust), TrustClosure(signature, _, _)) when signature.return_trust = Trust -> true
     | (TClosure(Untrust), Closure(_, _, _, _)) -> true
     | (TClosure(Untrust), TrustClosure(_, _, _)) -> true
     | (TRecClosure(Trust), RecClosure(_, _, _, _, Trust)) -> true
@@ -76,25 +76,17 @@ let validateParams (params: trust_param list) (args: evT list) : bool =
             | Untrust -> true  (* Untrusted parameters accept any trust level *)
         ) params args
 
-(* Validate module access based on trust levels *)
-let validateModuleAccess (module_trust: trust_level) (accessor_trust: trust_level) (method_name: string) : bool =
-    match (module_trust, accessor_trust) with
-    | (Trust, Untrust) -> 
-        Printf.printf "WARNING: Untrusted code accessing trusted module method '%s'\n" method_name;
-        false  (* Untrusted code cannot access trusted modules *)
-    | _ -> true
-
 (* Check if a value contains trusted functions *)
 let rec containsTrustedFunctions (value: evT) : bool =
     match value with
     | Closure(_, _, _, Trust) -> true
     | RecClosure(_, _, _, _, Trust) -> true
-    | TrustClosure(sig, _, _) when sig.return_trust = Trust -> true
+    | TrustClosure(signature, _, _) when signature.return_trust = Trust -> true
     | Module(_, bindings, _, _, _) ->
         List.exists (fun (_, v) -> containsTrustedFunctions v) bindings
     | _ -> false
 
-(* NEW: Check --recursively-- if an expression might evaluate to trusted functions *)
+(* Check --recursively-- if an expression might evaluate to trusted functions *)
 let rec expressionMightContainTrustedFunctions (expr: exp) (env: evT env) : bool =
     match expr with
     | Den(id) -> 
