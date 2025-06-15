@@ -1,4 +1,4 @@
-open Minicaml
+open TrustLang
 
 let test_basic_arithmetic () =
     let expr = Sum(EInt(2), EInt(3)) in
