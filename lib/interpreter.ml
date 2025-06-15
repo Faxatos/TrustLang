@@ -288,7 +288,6 @@ and eval (e:exp) (s:evT env) : evT =
     | Execute(plugin_expr, func_expr, args_expr) ->
         (match eval plugin_expr s with
          | Plugin(_, _) ->
-             (* SECURITY CHECK: Prevent passing trusted functions to plugins *)
              if expressionMightContainTrustedFunctions func_expr s then (
                  Printf.printf "SECURITY VIOLATION BLOCKED: Attempt to pass trusted function to untrusted plugin\n";
                  raise (SecurityError "Cannot pass trusted functions to untrusted plugins")
@@ -300,14 +299,13 @@ and eval (e:exp) (s:evT env) : evT =
                  let func_value = eval func_expr isolated_env in
                  let args_value = eval args_expr isolated_env in
                  
-                 (* Double-check the evaluated function is not trusted *)
+                 (* Check the evaluated function is not trusted *)
                  if containsTrustedFunctions func_value then (
                      Printf.printf "RUNTIME SECURITY VIOLATION BLOCKED: Evaluated function is trusted\n";
                      raise (SecurityError "Runtime check: Cannot execute trusted functions in untrusted plugins")
                  ) else (
                      Printf.printf "Function is untrusted, safe to execute\n";
                      
-                     (* Execute in untrusted context *)
                      match func_value with
                      | Closure(arg, body, _, Untrust) ->
                          let result_env = bind isolated_env arg args_value in
