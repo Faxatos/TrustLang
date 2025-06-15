@@ -1,4 +1,4 @@
 (executable
- (public_name TrustLang)
+ (public_name TrustMain)
  (name main)
  (libraries TrustLang))
