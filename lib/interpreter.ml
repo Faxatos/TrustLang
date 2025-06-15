@@ -32,7 +32,7 @@ let is_safe_content (content: string) : bool =
 (* -----LANGUAGE PRIMITIVES----- *)
 
 (* Checks if a number is zero *)
-let is_zero(x) = match (typecheck(TInt,x),x) with
+let is_zero(x) = 
     match x with
     | Int(v, t) -> Bool(v = 0, t)
     | _ -> raise (TrustViolation "Type mismatch in is_zero")
@@ -103,7 +103,6 @@ let bool_and(x,y) =
     | _ -> raise (TrustViolation "Type mismatch in logical and")
 
 let bool_or(x,y) = 
-    let trust_bool_or(x, y) = 
     match (x, y) with
     | (Bool(v1, t1), Bool(v2, t2)) -> 
         let result_trust = min_trust_level [t1; t2] in
@@ -120,7 +119,7 @@ let str_contains(x, y) =
     | (String(str, t1), String(substr, t2)) ->
         let result_trust = min_trust_level [t1; t2] in
         (* Simple string contains check *)
-        let rec contains s sub =
+        let contains s sub =
             let len_s = String.length s and len_sub = String.length sub in
             if len_sub = 0 then true
             else if len_s < len_sub then false
@@ -167,12 +166,6 @@ and eval_module_content (content: module_content) (env: evT env) (entries: ide l
         let new_env = bind env id promoted_value in
         let (bindings, final_entries) = eval_module_content next new_env entries in
         ((id, promoted_value) :: bindings, final_entries)
-    | ModuleTrustLet(id, trust_level, expr, next) ->
-        let value = eval expr env in
-        let promoted_value = promoteTrust trust_level value in
-        let new_env = bind env id promoted_value in
-        let (bindings, final_entries) = eval_module_content next new_env entries in
-        ((id, promoted_value) :: bindings, final_entries)
     | ModuleFun(id, signature, body, next) ->
         let func_value = TrustClosure(signature, body, env) in
         let new_env = bind env id func_value in
@@ -184,7 +177,7 @@ and eval_module_content (content: module_content) (env: evT env) (entries: ide l
     | ModuleEnd -> ([], entries)
 
 (* Interpreter *)
-let rec eval (e:exp) (s:evT env) : evT = 
+and eval (e:exp) (s:evT env) : evT = 
     match e with
     | EInt(n) -> Int(n, Untrust)
     | CstTrue -> Bool(true, Untrust)
@@ -273,7 +266,7 @@ let rec eval (e:exp) (s:evT env) : evT =
 
     | ModuleAccess(module_expr, method_name) ->
         (match eval module_expr s with
-         | Module(_, bindings, entries, module_env, module_trust) ->
+         | Module(_, bindings, entries, _, module_trust) ->
              if List.mem method_name entries then
                  (try 
                      let accessed_value = List.assoc method_name bindings in
@@ -288,13 +281,13 @@ let rec eval (e:exp) (s:evT env) : evT =
          | _ -> raise (ModuleError "Not a module"))
 
     | Include(plugin_expr) ->
-        let plugin_code = eval plugin_expr s in
-        Plugin(plugin_expr, s)
+        (* Store the plugin expression *)
+        Plugin(plugin_expr, emptyenv)
 
     (* Execute with trusted function protection *)
     | Execute(plugin_expr, func_expr, args_expr) ->
         (match eval plugin_expr s with
-         | Plugin(plugin_code, plugin_env) ->
+         | Plugin(_, _) ->
              (* SECURITY CHECK: Prevent passing trusted functions to plugins *)
              if expressionMightContainTrustedFunctions func_expr s then (
                  Printf.printf "SECURITY VIOLATION BLOCKED: Attempt to pass trusted function to untrusted plugin\n";
@@ -316,7 +309,7 @@ let rec eval (e:exp) (s:evT env) : evT =
                      
                      (* Execute in untrusted context *)
                      match func_value with
-                     | Closure(arg, body, env, Untrust) ->
+                     | Closure(arg, body, _, Untrust) ->
                          let result_env = bind isolated_env arg args_value in
                          eval body result_env
                      | _ -> raise (PluginError "Plugin function must be an untrusted closure")
