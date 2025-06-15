@@ -96,6 +96,6 @@ type evT =
     | Closure of ide * exp * evT env * trust_level
     | RecClosure of ide * ide * exp * evT env * trust_level
     | TrustClosure of trust_signature * exp * evT env
-    | Module of ide * (ide * evT) list * ide list * evT env
+    | Module of ide * (ide * evT) list * ide list * evT env * trust_level
     | Plugin of exp * evT env
     | UnBound

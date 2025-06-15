@@ -1,39 +1,117 @@
 open Ast
 
+(* Calculate the minimum trust level from a list of trust levels *)
+let min_trust_level (levels: trust_level list) : trust_level =
+    if List.for_all (fun t -> t = Trust) levels then Trust else Untrust
+
+(* Calculate module trust level based on its contents *)
+let calculate_module_trust (bindings: (ide * evT) list) : trust_level =
+    if bindings = [] then Trust  (* Empty module is trusted *)
+    else
+        let trust_levels = List.map (fun (_, value) -> getTrustLevel value) bindings in
+        min_trust_level trust_levels
+
+(* Extract trust level from evaluation type *)
+and getTrustLevel (x: evT) : trust_level =
+    match x with
+    | Int(_, t) | Bool(_, t) | String(_, t) -> t
+    | Closure(_, _, _, t) | RecClosure(_, _, _, _, t) -> t
+    | TrustClosure(sig, _, _) -> sig.return_trust
+    | Module(_, bindings, _, _, module_trust) -> module_trust  (* Use calculated trust *)
+    | Plugin(_, _) -> Untrust
+    | UnBound -> Untrust
+
 (* Function from evT to tname that maps each value to its type descriptor *)
 let getType (x: evT) : tname =
     match x with
-    | Int(_) -> TInt
-    | Bool(_) -> TBool
-    | String(_) -> TString
-    | Closure(_,_,_) -> TClosure
-    | RecClosure(_,_,_,_) -> TRecClosure
+    | Int(_, t) -> TInt(t)
+    | Bool(_, t) -> TBool(t)
+    | String(_, t) -> TString(t)
+    | Closure(_, _, _, t) -> TClosure(t)
+    | RecClosure(_, _, _, _, t) -> TRecClosure(t)
+    | TrustClosure(sig, _, _) -> TClosure(sig.return_trust)
+    | Module(_, bindings, _, _, module_trust) -> TModule(module_trust)
+    | Plugin(_, _) -> TPlugin
     | UnBound -> TUnBound
 
-(* Type-checking *)
-let typecheck ((x, y) : (tname * evT)) = 
-    match x with
-    | TInt -> (match y with 
-               | Int(_) -> true
-               | _ -> false
-               )
-    | TBool -> (match y with 
-                | Bool(_) -> true
-                | _ -> false
-                )
-    | TString -> (match y with
-                 | String(_) -> true
-                 | _ -> false
-                 )
-    | TClosure -> (match y with
-                   | Closure(_,_,_) -> true
-                   | _ -> false
-                   )
-    | TRecClosure -> (match y with
-                     | RecClosure(_,_,_,_) -> true
-                     | _ -> false
-                     )
-    | TUnBound -> (match y with
-                 | UnBound -> true
-                 | _ -> false
-                 )
+(* Trust-aware type checking *)
+let typecheck ((expected, actual) : (tname * evT)) : bool =
+    match (expected, actual) with
+    | (TInt(Trust), Int(_, Trust)) -> true
+    | (TInt(Untrust), Int(_, _)) -> true
+    | (TBool(Trust), Bool(_, Trust)) -> true
+    | (TBool(Untrust), Bool(_, _)) -> true
+    | (TString(Trust), String(_, Trust)) -> true
+    | (TString(Untrust), String(_, _)) -> true
+    | (TClosure(Trust), Closure(_, _, _, Trust)) -> true
+    | (TClosure(Trust), TrustClosure(sig, _, _)) when sig.return_trust = Trust -> true
+    | (TClosure(Untrust), Closure(_, _, _, _)) -> true
+    | (TClosure(Untrust), TrustClosure(_, _, _)) -> true
+    | (TRecClosure(Trust), RecClosure(_, _, _, _, Trust)) -> true
+    | (TRecClosure(Untrust), RecClosure(_, _, _, _, _)) -> true
+    | (TModule(Trust), Module(_, _, _, _, Trust)) -> true
+    | (TModule(Untrust), Module(_, _, _, _, _)) -> true  (* Untrusted context accepts any module *)
+    | (TPlugin, Plugin(_, _)) -> true
+    | (TUnBound, UnBound) -> true
+    | _ -> false
+
+(* Promote trust level *)
+let promoteTrust (level: trust_level) (value: evT) : evT =
+    match (level, value) with
+    | (Trust, Int(v, _)) -> Int(v, Trust)
+    | (Trust, Bool(v, _)) -> Bool(v, Trust)
+    | (Trust, String(v, _)) -> String(v, Trust)
+    | (Trust, Closure(p, b, e, _)) -> Closure(p, b, e, Trust)
+    | (Trust, RecClosure(f, p, b, e, _)) -> RecClosure(f, p, b, e, Trust)
+    | _ -> value
+
+(* Validate parameter trust levels *)
+let validateParams (params: trust_param list) (args: evT list) : bool =
+    if List.length params <> List.length args then false
+    else
+        List.for_all2 (fun param arg ->
+            let arg_trust = getTrustLevel arg in
+            match param.param_trust with
+            | Trust -> arg_trust = Trust
+            | Untrust -> true  (* Untrusted parameters accept any trust level *)
+        ) params args
+
+(* Validate module access based on trust levels *)
+let validateModuleAccess (module_trust: trust_level) (accessor_trust: trust_level) (method_name: string) : bool =
+    match (module_trust, accessor_trust) with
+    | (Trust, Untrust) -> 
+        Printf.printf "WARNING: Untrusted code accessing trusted module method '%s'\n" method_name;
+        false  (* Untrusted code cannot access trusted modules *)
+    | _ -> true
+
+(* Check if a value contains trusted functions *)
+let rec containsTrustedFunctions (value: evT) : bool =
+    match value with
+    | Closure(_, _, _, Trust) -> true
+    | RecClosure(_, _, _, _, Trust) -> true
+    | TrustClosure(sig, _, _) when sig.return_trust = Trust -> true
+    | Module(_, bindings, _, _, _) ->
+        List.exists (fun (_, v) -> containsTrustedFunctions v) bindings
+    | _ -> false
+
+(* NEW: Check --recursively-- if an expression might evaluate to trusted functions *)
+let rec expressionMightContainTrustedFunctions (expr: exp) (env: evT env) : bool =
+    match expr with
+    | Den(id) -> 
+        (match env id with
+         | UnBound -> false
+         | value -> containsTrustedFunctions value)
+    | ModuleAccess(module_expr, _) ->
+        (* Module access might return trusted functions *)
+        true
+    | Apply(_, _) -> 
+        (* Function application might return trusted functions *)
+        true
+    | Let(_, _, body) | TrustLet(_, _, _, body) -> 
+        expressionMightContainTrustedFunctions body env
+    | IfThenElse(_, then_expr, else_expr) ->
+        expressionMightContainTrustedFunctions then_expr env ||
+        expressionMightContainTrustedFunctions else_expr env
+    | TrustFun(sig, _) when sig.return_trust = Trust -> true
+    | Fun(_, _) -> false  (* Regular functions are untrusted by default *)
+    | _ -> false
