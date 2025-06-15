@@ -27,14 +27,6 @@ type trust_signature = {
     return_trust : trust_level;
 }
 
-(* Pattern matching types *)
-type pattern = 
-    | PVar of ide                    (* Variable pattern *)
-    | PConst of exp                  (* Constant pattern *)
-    | PWildcard                      (* Wildcard pattern _ *)
-
-type match_case = pattern * exp      (* Pattern and corresponding expression *)
-
 (* Abstract Expressions = expressions in abstract syntax, 
    they compose the Abstract Syntax Tree *)
 type exp = 
@@ -77,6 +69,14 @@ type exp =
     | Include of exp
     | Execute of exp * exp * exp
     | Assert of ide * trust_level
+
+(* Pattern matching types *)
+and pattern = 
+    | PVar of ide
+    | PConst of exp
+    | PWildcard
+
+and match_case = pattern * exp
 
 (* Module content structure *)
 and module_content = 
