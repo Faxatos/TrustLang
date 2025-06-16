@@ -1,7 +1,17 @@
-(* Re-export all modules for external use *)
+(* Re-export all modules *)
+module Ast = Ast
+module Types = Types
+module Interpreter = Interpreter
+
 include Ast
-include Types  
+include Types
 include Interpreter
+
+(* Test that constructors are available *)
+let test_constructors () =
+    let _ = EInt(42) in  (* This should compile if Ast is properly included *)
+    let _ = Trust in     (* This should compile if Types is properly included *)
+    ()
 
 let create_trust_env () = emptyenv
 

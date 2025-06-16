@@ -1,4 +1,3 @@
 (test
- (public_name TrustTest)
  (name test_MiniCaml)
  (libraries TrustLang))
