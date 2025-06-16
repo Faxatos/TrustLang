@@ -82,9 +82,13 @@ let rec containsTrustedFunctions (value: evT) : bool =
     match value with
     | Closure(_, _, _, Trust) -> true
     | RecClosure(_, _, _, _, Trust) -> true
-    | TrustClosure(signature, _, _) when signature.return_trust = Trust -> true
+    | TrustClosure(signature, body, env) ->
+        signature.return_trust = Trust ||
+        expressionMightContainTrustedFunctions body env
     | Module(_, bindings, _, _, _) ->
         List.exists (fun (_, v) -> containsTrustedFunctions v) bindings
+    | Plugin(body, env) ->
+        expressionMightContainTrustedFunctions body env
     | _ -> false
 
 (* Check --recursively-- if an expression might evaluate to trusted functions *)
@@ -95,13 +99,20 @@ let rec expressionMightContainTrustedFunctions (expr: exp) (env: evT env) : bool
          | UnBound -> false
          | value -> containsTrustedFunctions value)
     | ModuleAccess(_, _) -> true
-    | Apply(_, _) -> true
-    | Let(_, _, body) | TrustLet(_, _, _, body) -> 
+    | Apply(e1, e2) ->
+        expressionMightContainTrustedFunctions e1 env ||
+        expressionMightContainTrustedFunctions e2 env
+    | Let(_, e, body) | TrustLet(_, _, e, body) -> 
+        expressionMightContainTrustedFunctions e env ||
         expressionMightContainTrustedFunctions body env
-    | IfThenElse(_, then_expr, else_expr) ->
+    | IfThenElse(cond, then_expr, else_expr) ->
+        expressionMightContainTrustedFunctions cond env ||
         expressionMightContainTrustedFunctions then_expr env ||
         expressionMightContainTrustedFunctions else_expr env
-    | TrustFun(signature, _) when signature.return_trust = Trust -> true
+    | TrustFun(signature, body) when signature.return_trust = Trust -> true
+    | TrustFun(_, body) -> 
+        expressionMightContainTrustedFunctions body env
     | Fun(_, body) -> 
         expressionMightContainTrustedFunctions body env
+    | Apply(ModuleAccess(_, _), _) -> true
     | _ -> false
