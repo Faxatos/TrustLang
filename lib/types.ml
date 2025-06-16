@@ -77,20 +77,6 @@ let validateParams (params: trust_param list) (args: evT list) : bool =
             | Untrust -> true
         ) params args
 
-(* Check if a value contains trusted functions *)
-let rec containsTrustedFunctions (value: evT) : bool =
-    match value with
-    | Closure(_, _, _, Trust) -> true
-    | RecClosure(_, _, _, _, Trust) -> true
-    | TrustClosure(signature, body, env) ->
-        signature.return_trust = Trust ||
-        expressionMightContainTrustedFunctions body env
-    | Module(_, bindings, _, _, _) ->
-        List.exists (fun (_, v) -> containsTrustedFunctions v) bindings
-    | Plugin(body, env) ->
-        expressionMightContainTrustedFunctions body env
-    | _ -> false
-
 (* Check --recursively-- if an expression might evaluate to trusted functions *)
 let rec expressionMightContainTrustedFunctions (expr: exp) (env: evT env) : bool =
     match expr with
@@ -109,10 +95,23 @@ let rec expressionMightContainTrustedFunctions (expr: exp) (env: evT env) : bool
         expressionMightContainTrustedFunctions cond env ||
         expressionMightContainTrustedFunctions then_expr env ||
         expressionMightContainTrustedFunctions else_expr env
-    | TrustFun(signature, body) when signature.return_trust = Trust -> true
-    | TrustFun(_, body) -> 
-        expressionMightContainTrustedFunctions body env
+    | TrustFun(signature, body) -> 
+        if signature.return_trust = Trust then true
+        else expressionMightContainTrustedFunctions body env
     | Fun(_, body) -> 
         expressionMightContainTrustedFunctions body env
-    | Apply(ModuleAccess(_, _), _) -> true
+    | _ -> false
+
+(* Check if a value contains trusted functions *)
+and containsTrustedFunctions (value: evT) : bool =
+    match value with
+    | Closure(_, _, _, Trust) -> true
+    | RecClosure(_, _, _, _, Trust) -> true
+    | TrustClosure(signature, body, env) ->
+        signature.return_trust = Trust ||
+        expressionMightContainTrustedFunctions body env
+    | Module(_, bindings, _, _, _) ->
+        List.exists (fun (_, v) -> containsTrustedFunctions v) bindings
+    | Plugin(body, env) ->
+        expressionMightContainTrustedFunctions body env
     | _ -> false
