@@ -1,6 +1,6 @@
 (lang dune 3.14)
 
-(name TrustLang)
+(name trustlang)
 
 (generate_opam_files true)
 
@@ -14,9 +14,9 @@
 (documentation https://url/to/documentation)
 
 (package
- (name TrustLang)
+ (name trustlang)
  (synopsis "Assignments for the Language Based Technology for Security UniPi course")
- (description "Functional programming language in OCaml that manages trusted vs untrusted code execution")
+ (description "A secure functional programming language in OCaml that manages trusted vs untrusted code execution")
  (depends ocaml dune)
  (tags
   (topics "to describe" your project)))

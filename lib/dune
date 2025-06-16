@@ -1,5 +1,5 @@
 (library
- (public_name TrustLang)
- (name TrustLang)
+ (public_name trustlang)
+ (name trustlang)
  (modules ast types interpreter trustlang)
 )

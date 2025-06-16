@@ -3,7 +3,7 @@ opam-version: "2.0"
 synopsis:
   "Assignments for the Language Based Technology for Security UniPi course"
 description:
-  "Functional programming language in OCaml that manages trusted vs untrusted code execution"
+  "A secure functional programming language in OCaml that manages trusted vs untrusted code execution"
 authors: ["Faxatos"]
 license: "LICENSE"
 tags: ["topics" "to describe" "your" "project"]
