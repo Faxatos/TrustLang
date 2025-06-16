@@ -305,10 +305,9 @@ and eval (e:exp) (s:evT env) : evT =
              ) else (
                  Printf.printf "No trusted functions detected in plugin parameters\n";
                  
-                 (* Evaluate function and arguments in isolated environment *)
-                 let isolated_env = emptyenv in
-                 let func_value = eval func_expr isolated_env in
-                 let args_value = eval args_expr isolated_env in
+                 (* Use current environment *)
+                 let func_value = eval func_expr s in
+                 let args_value = eval args_expr s in
                  
                  (* Check the evaluated function is not trusted *)
                  if containsTrustedFunctions func_value then (
@@ -319,7 +318,7 @@ and eval (e:exp) (s:evT env) : evT =
                      
                      match func_value with
                      | Closure(arg, body, _, Untrust) ->
-                         let result_env = bind isolated_env arg args_value in
+                         let result_env = bind s arg args_value in
                          eval body result_env
                      | _ -> raise (PluginError "Plugin function must be an untrusted closure")
                  )

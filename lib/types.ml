@@ -102,5 +102,6 @@ let rec expressionMightContainTrustedFunctions (expr: exp) (env: evT env) : bool
         expressionMightContainTrustedFunctions then_expr env ||
         expressionMightContainTrustedFunctions else_expr env
     | TrustFun(signature, _) when signature.return_trust = Trust -> true
-    | Fun(_, _) -> false
+    | Fun(_, body) -> 
+        expressionMightContainTrustedFunctions body env
     | _ -> false
