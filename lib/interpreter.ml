@@ -292,20 +292,21 @@ and eval (e:exp) (s:evT env) : evT =
          | _ -> raise (ModuleError "Not a module"))
 
     | Include(plugin_expr) ->
-        (* Store the plugin expression *)
-        Plugin(plugin_expr, emptyenv)
+        (* Store the plugin expression with current env *)
+        Plugin(plugin_expr, s)
 
     (* Execute with trusted function protection *)
     | Execute(plugin_expr, func_expr, args_expr) ->
         (match eval plugin_expr s with
-         | Plugin(_, _) ->
-             if expressionMightContainTrustedFunctions func_expr s then (
+         | Plugin(plugin_body, plugin_env) ->
+             (* Check if plugin body contains trusted functions *)
+             if expressionMightContainTrustedFunctions plugin_body plugin_env then (
                  Printf.printf "SECURITY VIOLATION BLOCKED: Attempt to pass trusted function to untrusted plugin\n";
                  raise (SecurityError "Cannot pass trusted functions to untrusted plugins")
              ) else (
                  Printf.printf "No trusted functions detected in plugin parameters\n";
                  
-                 (* Use current environment *)
+                 (* Evaluate function and arguments in current environment *)
                  let func_value = eval func_expr s in
                  let args_value = eval args_expr s in
                  
