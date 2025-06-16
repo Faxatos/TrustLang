@@ -229,13 +229,24 @@ and eval (e:exp) (s:evT env) : evT =
               | (Trust, Untrust) -> raise (TrustViolation "Trusted recursive function called with untrusted argument")
               | _ -> result)
          | TrustClosure(signature, body, env) ->
-             let args = [v] in
-             if not (validateParams signature.params args) then
-                 raise (TrustViolation "Parameter trust level mismatch")
+             let params = signature.params in
+             if List.length params = 1 then
+                (* Single parameter: apply directly *)
+                let args = [v] in
+                if not (validateParams params args) then
+                    raise (TrustViolation "Parameter trust level mismatch")
+                else
+                    let new_env = bind_params env params args in
+                    let result = eval body new_env in
+                    promoteTrust signature.return_trust result
              else
-                 let new_env = bind_params env signature.params args in
-                 let result = eval body new_env in
-                 promoteTrust signature.return_trust result
+                (* Multiple parameters: return a new closure for partial application *)
+                let new_signature = {
+                    params = List.tl params;
+                    return_trust = signature.return_trust;
+                } in
+                let new_env = bind env (List.hd params).param_name v in
+                TrustClosure(new_signature, body, new_env)
          | _ -> raise (TrustViolation "Not a function"))
 
     (* Trust-specific constructs *)

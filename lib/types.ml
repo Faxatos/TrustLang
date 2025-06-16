@@ -68,6 +68,7 @@ let promoteTrust (level: trust_level) (value: evT) : evT =
 (* Validate parameter trust levels *)
 let validateParams (params: trust_param list) (args: evT list) : bool =
     if List.length params <> List.length args then false
+    else if params = [] then true  (* Handle empty parameter list *)
     else
         List.for_all2 (fun param arg ->
             let arg_trust = getTrustLevel arg in
