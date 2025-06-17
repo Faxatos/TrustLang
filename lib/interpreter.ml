@@ -137,6 +137,13 @@ let str_length(x) =
     | String(str, t) -> Int(String.length str, t)
     | _ -> raise (TrustViolation "Type mismatch in string length")
 
+let str_concat(x, y) =
+    match (x, y) with
+    | (String(s1, t1), String(s2, t2)) ->
+        let result_trust = min_trust_level [t1; t2] in
+        String(s1 ^ s2, result_trust)
+    | _ -> raise (TrustViolation "Type mismatch in string concatenation")
+
 let handle_validation_result validation_result value = 
     match validation_result with
     | Bool(true, Untrust) ->
@@ -371,3 +378,4 @@ and eval (e:exp) (s:evT env) : evT =
         
     | StrContains(e1, e2) -> str_contains((eval e1 s), (eval e2 s))
     | StrLength(e1) -> str_length(eval e1 s)
+    | StrConcat(e1, e2) -> str_concat((eval e1 s), (eval e2 s))

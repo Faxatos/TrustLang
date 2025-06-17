@@ -60,6 +60,7 @@ type exp =
     (* String operations *)
     | StrContains of exp * exp
     | StrLength of exp
+    | StrConcat of exp * exp
     (* Trust primitives *)
     | TrustLet of ide * trust_level * exp * exp
     | TrustFun of trust_signature * exp
