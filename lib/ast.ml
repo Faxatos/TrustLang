@@ -64,6 +64,7 @@ type exp =
     | TrustLet of ide * trust_level * exp * exp
     | TrustFun of trust_signature * exp
     | Validate of exp
+    | ValidateWith of exp * exp
     | Module of ide * module_content * exp list
     | ModuleAccess of exp * ide
     | Include of exp

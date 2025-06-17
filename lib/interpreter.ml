@@ -138,6 +138,15 @@ let str_length(x) =
     | String(str, t) -> Int(String.length str, t)
     | _ -> raise (TrustViolation "Type mismatch in string length")
 
+let handle_validation_result validation_result value = 
+    match validation_result with
+    | Bool(true, Trust) ->
+        promoteTrust Trust value
+    | Bool(false, Trust) ->
+        raise (SecurityError "Custom validation failed")
+    | _ ->
+        raise (TrustViolation "Validation function must return trusted boolean")
+
 let rec match_pattern (pattern: pattern) (value: evT) (env: evT env) : evT env option =
     match pattern with
     | PVar(id) -> Some (bind env id value)
@@ -266,6 +275,34 @@ and eval (e:exp) (s:evT env) : evT =
              else raise (SecurityError "Validation failed: negative integer")
          | Bool(v, Untrust) -> Bool(v, Trust)
          | _ -> raise (TrustViolation "Cannot validate already trusted or non-validatable data"))
+    
+    | ValidateWith(val_func_expr, value_expr) ->
+        let val_func = eval val_func_expr s in
+        let value = eval value_expr s in
+        
+        (* Ensure value is untrusted *)
+        if getTrustLevel value = Trust then
+            raise (TrustViolation "Cannot validate already trusted data");
+        
+        (* Validate using custom function *)
+        match val_func with
+            | TrustClosure(signature, body, env) ->
+            let arg_name = 
+                match signature.params with
+                | p::_ -> p.param_name
+                | [] -> "input" in
+            let new_env = bind env arg_name value in
+            let validation_result = eval body new_env in
+            handle_validation_result validation_result value
+            
+            | Closure(arg, body, env, Trust) ->
+                let arg_name = arg in
+                let new_env = bind env arg_name value in
+                let validation_result = eval body new_env in
+                handle_validation_result validation_result value
+        
+        | _ ->
+            raise (TrustViolation "Validation must be performed by a trusted function")
 
     | Module(name, content, entry_exprs) ->
         let entry_names = List.map (function Den(id) -> id | _ -> raise (ModuleError "Entry must be identifier")) entry_exprs in
