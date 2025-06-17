@@ -140,12 +140,12 @@ let str_length(x) =
 
 let handle_validation_result validation_result value = 
     match validation_result with
-    | Bool(true, Trust) ->
+    | Bool(true, Untrust) ->
         promoteTrust Trust value
-    | Bool(false, Trust) ->
+    | Bool(false, Untrust) ->
         raise (SecurityError "Custom validation failed")
     | _ ->
-        raise (TrustViolation "Validation function must return trusted boolean")
+        raise (TrustViolation "Validation function should return untrusted value, since it's handling untrusted values")
 
 let rec match_pattern (pattern: pattern) (value: evT) (env: evT env) : evT env option =
     match pattern with
@@ -349,7 +349,7 @@ and eval (e:exp) (s:evT env) : evT =
                      Printf.printf "RUNTIME SECURITY VIOLATION BLOCKED: Evaluated function is trusted\n";
                      raise (SecurityError "Runtime check: Cannot execute trusted functions in untrusted plugins")
                  ) else (
-                     Printf.printf "Function is untrusted, safe to execute\n";
+                     Printf.printf "Function is untrusted, safe to execute in Plugin\n";
                      
                      match func_value with
                      | Closure(arg, body, _, Untrust) ->
