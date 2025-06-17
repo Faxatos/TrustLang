@@ -26,8 +26,7 @@ let rec bind_params (env: evT env) (params: trust_param list) (args: evT list) :
 
 (* Trust validation function *)
 let is_safe_content (content: string) : bool =
-    not (String.contains content '$' || 
-         String.contains content 'm')
+    not (String.contains content '$')
 
 (* -----LANGUAGE PRIMITIVES----- *)
 
