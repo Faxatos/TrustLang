@@ -197,6 +197,23 @@ and eval_module_content (content: module_content) (env: evT env) (entries: ide l
         (bindings, final_entries)
     | ModuleEnd -> ([], entries)
 
+let downgrade_untrusted_result (func_trust: trust_level) (result: evT) : evT =
+    match func_trust with
+    | Untrust -> 
+        (* If function is untrusted, downgrade any trusted results to untrusted *)
+        (match result with
+         | Int(v, Trust) -> Int(v, Untrust)
+         | Bool(v, Trust) -> Bool(v, Untrust) 
+         | String(v, Trust) -> String(v, Untrust)
+         | Closure(p, b, e, Trust) -> Closure(p, b, e, Untrust)
+         | RecClosure(f, p, b, e, Trust) -> RecClosure(f, p, b, e, Untrust)
+         (* TrustClosures cannot be downgraded *)
+         | TrustClosure(_, _, _) -> 
+             raise (SecurityError "Untrusted function cannot produce TrustClosure")
+         | Module(n, bs, es, env, Trust) -> Module(n, bs, es, env, Untrust)
+         | _ -> result)
+    | Trust -> result (* Trusted functions can return trusted results *)
+
 (* Interpreter *)
 and eval (e:exp) (s:evT env) : evT = 
     match e with
@@ -241,14 +258,14 @@ and eval (e:exp) (s:evT env) : evT =
              let result = eval body new_env in
              (match (trust_level, getTrustLevel v) with
               | (Trust, Untrust) -> raise (TrustViolation "Trusted function called with untrusted argument")
-              | _ -> result)
+              | _ -> downgrade_untrusted_result trust_level result)
          | RecClosure(fname, arg, body, env, trust_level) -> 
              let renv = bind env fname f in
              let new_env = bind renv arg v in
              let result = eval body new_env in
              (match (trust_level, getTrustLevel v) with
               | (Trust, Untrust) -> raise (TrustViolation "Trusted recursive function called with untrusted argument")
-              | _ -> result)
+              | _ -> downgrade_untrusted_result trust_level result)
          | TrustClosure(signature, body, env) ->
              let params = signature.params in
              if List.length params = 1 then
@@ -273,8 +290,15 @@ and eval (e:exp) (s:evT env) : evT =
     (* Trust-specific constructs *)
     | TrustLet(i, trust_level, e, ebody) ->
         let value = eval e s in
-        let promoted_value = promoteTrust trust_level value in
-        eval ebody (bind s i promoted_value)
+        (* Check if it's trying to promote an untrusted function *)
+        (match (trust_level, value) with
+        | (Trust, Closure(_, _, _, Untrust)) ->
+            raise (SecurityError ("Cannot promote untrusted function '" ^ i ^ "' to trusted level"))
+        | (Trust, RecClosure(_, _, _, _, Untrust)) ->
+            raise (SecurityError ("Cannot promote untrusted recursive function '" ^ i ^ "' to trusted level"))
+        | _ -> 
+            let promoted_value = promoteTrust trust_level value in
+            eval ebody (bind s i promoted_value))
 
     | Validate(e) ->
         let value = eval e s in

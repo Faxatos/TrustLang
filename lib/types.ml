@@ -61,8 +61,19 @@ let promoteTrust (level: trust_level) (value: evT) : evT =
     | (Trust, Int(v, _)) -> Int(v, Trust)
     | (Trust, Bool(v, _)) -> Bool(v, Trust)
     | (Trust, String(v, _)) -> String(v, Trust)
-    | (Trust, Closure(p, b, e, _)) -> Closure(p, b, e, Trust)
-    | (Trust, RecClosure(f, p, b, e, _)) -> RecClosure(f, p, b, e, Trust)
+    (* Prevent promoting untrusted functions to trusted *)
+    | (Trust, Closure(_, _, _, Untrust)) -> 
+        raise (SecurityError "Cannot promote untrusted functions to trusted level")
+    | (Trust, RecClosure(_, _, _, _, Untrust)) -> 
+        raise (SecurityError "Cannot promote untrusted recursive functions to trusted level")
+    (* Allow promoting already trusted functions (no-op) *)
+    | (Trust, Closure(p, b, e, Trust)) -> Closure(p, b, e, Trust)
+    | (Trust, RecClosure(f, p, b, e, Trust)) -> RecClosure(f, p, b, e, Trust)
+    (* TrustClosure and other types cannot be promoted via TrustLet *)
+    | (Trust, TrustClosure(_, _, _)) -> 
+        raise (SecurityError "TrustClosure cannot be promoted via TrustLet")
+    | (Trust, Module(_, _, _, _, _)) ->
+        raise (SecurityError "Modules cannot be promoted via TrustLet") 
     | _ -> value
 
 (* Validate parameter trust levels *)
