@@ -54,11 +54,11 @@ let execWithSuccess test =
 let print_separator() =
   print_string "-------------------------------------------------------------------------------------\n"
 
-let print_test_header test_name =
+let print_example_header test_name =
   print_separator();
   Printf.printf " %s\n" test_name
 
-let run_examples  () =
+let run_examples () =
   Printf.printf "\n=== TRUSTLANG EXAMPLES ===\n\n";
 
   (* Example 1: Basic variable declarations with trust levels *)
@@ -72,40 +72,35 @@ let run_examples  () =
   (* Example 2: Trusted functions with validation logic *)
   print_example_header "Example 2: Trusted functions with validation and string operations";
   let _ = execWithSuccess(
-    (* Define a trusted concatenation-like function using string contains for demo *)
-    Let("trusted_module",
-        Module("StringOps",
-               (* p_trusted function: simulates string concatenation by checking if data contains "hello" *)
-               ModuleLet("p_trusted", Trust,
-                        TrustFun(make_signature [make_param "data" Trust] Trust,
-                                Let("myh", EString("hello"),
-                                    IfThenElse(StrContains(Den("data"), Den("myh")),
-                                              EString("hello_combined"),
-                                              EString("hello_default")))),
-                        (* is_safe function: validates that string doesn't contain "malicious" *)
-                        ModuleLet("is_safe", Trust,
-                                 TrustFun(make_signature [make_param "text" Untrust] Trust,
-                                         Not(StrContains(Den("text"), EString("malicious")))),
-                                 (* validate function: validates input and returns it if safe *)
-                                 ModuleLet("validate", Trust,
-                                          TrustFun(make_signature [make_param "input" Untrust] Trust,
-                                                  Let("safe_check", 
-                                                      Apply(ModuleAccess(Den("trusted_module"), "is_safe"), Den("input")),
-                                                      IfThenElse(Den("safe_check"),
-                                                                ValidateWith(Fun("x", CstTrue), Den("input")),
-                                                                EString("validation_failed")))),
-                                          ModuleEntry("p_trusted",
-                                                     ModuleEntry("is_safe", 
-                                                                ModuleEntry("validate", ModuleEnd)))))),
-               [Den("p_trusted"); Den("is_safe"); Den("validate")]),
-        (* Test the functions *)
-        TrustLet("safe_data", Trust, EString("hello_world"),
-                Let("unsafe_data", EString("malicious_code"),
-                    Apply(ModuleAccess(Den("trusted_module"), "p_trusted"), Den("safe_data")))))
+    (* Declare p_trusted: concatenates "hello" with input string *)
+    Let("p_trusted",
+        TrustFun(make_signature [make_param "data" Trust] Trust,
+                TrustLet("myh", Trust, EString("hello"),
+                        StrConcat(Den "myh", Den "data"))),
+    
+    (* Declare is_safe: validates untrusted strings *)
+    Let("is_safe",
+        TrustFun(make_signature [make_param "text" Untrust] Trust,
+                Not(StrContains(Den "text", EString("malicious")))),
+    
+    (* Declare validate: promotes valid strings to trusted *)
+    Let("validate",
+        TrustFun(make_signature [make_param "input" Untrust] Trust,
+                Let("safe_check", Apply(Den "is_safe", Den "input"),
+                    IfThenElse(Den "safe_check",
+                              ValidateWith(Den "is_safe", Den "input"),
+                              TrustLet("failed", Trust, EString("validation_failed"), Den "failed")))),
+    
+    (* Test the functions - using a let binding to sequence operations *)
+    Let("_", 
+        TrustLet("safe_data", Trust, EString("_world"),
+                Apply(Den "p_trusted", Den "safe_data")),
+        Let("untrusted_input", EString("user_input"),
+            Apply(Den "validate", Den "untrusted_input"))
+    ))))
   ) in
 
   (* Example 3: Authentication module with password checking *)
-  (* Original: Authentication module with password validation *)
   print_example_header "Example 3: Authentication module with secure password checking";
   let _ = execWithSuccess(
     Let("authentication",
@@ -120,17 +115,17 @@ let run_examples  () =
                                  ModuleLet("validate", Trust,
                                           TrustFun(make_signature [make_param "input" Untrust] Trust,
                                                   Let("safe_check",
-                                                      Apply(ModuleAccess(Den("authentication"), "is_safe"), Den("input")),
+                                                      Apply(Den("is_safe"), Den("input")),
                                                       IfThenElse(Den("safe_check"),
-                                                                ValidateWith(Fun("x", CstTrue), Den("input")),
+                                                                ValidateWith(Den("is_safe"), Den("input")),
                                                                 EString("validation_failed")))),
                                           (* checkPsw function *)
                                           ModuleLet("checkPsw", Trust,
                                                    TrustFun(make_signature [make_param "g" Untrust] Trust,
                                                            Let("handle",
-                                                               Apply(ModuleAccess(Den("authentication"), "validate"), Den("g")),
+                                                               Apply(Den("validate"), Den("g")),
                                                                (* Check if validated input equals password *)
-                                                               Eq(Den("handle"), ModuleAccess(Den("authentication"), "password")))),
+                                                               Eq(Den("handle"), Den("password")))),
                                                    ModuleEntry("checkPsw", ModuleEnd))))),
                [Den("checkPsw")]),
         (* Test the authentication *)
@@ -139,7 +134,6 @@ let run_examples  () =
   ) in
 
   (* Example 4: Plugin security vulnerability demonstration *)
-  (* Original: Filter function with security attack simulation *)
   print_example_header "Example 4: Plugin security vulnerability - Trusted function leakage prevention";
   
   (* First show a legitimate use case *)
@@ -155,7 +149,7 @@ let run_examples  () =
 
   (* Now demonstrate the security violation attempt *)
   Printf.printf "\n--- Security Attack Prevention ---\n";
-  execWithFailure(
+  let _ = execWithFailure(
     (* Recreate the authentication module *)
     Let("my_trust_module",
         Module("AttackTarget",
@@ -170,7 +164,7 @@ let run_examples  () =
             Let("myFilter", Include(EInt(1)),
                 (* This should fail - trying to pass trusted function to plugin *)
                 Execute(Den("myFilter"), Den("myAttack"), EString("test_password")))))
-  );
+  ) in
 
   (* Example 5: Demonstrate proper plugin usage with untrusted functions *)
   print_example_header "Example 5: Proper plugin usage with untrusted functions";
@@ -190,7 +184,7 @@ let run_examples  () =
   ) in
 
   print_separator();
-  Printf.printf "\n=== HOMEWORK EXAMPLES COMPLETED ===\n";
+  Printf.printf "\n=== HOMEWORK EXAMPLES COMPLETED ===\n"
 
 (* Main entry point *)
 let () = run_examples ()
