@@ -36,13 +36,19 @@ let is_zero(x) =
     | Int(v, t) -> Bool(v = 0, t)
     | _ -> raise (TrustViolation "Type mismatch in is_zero")
 
-(* Integer equality *)
-let int_eq(x,y) =   
+(* Integer - String - Bool equality *)
+let eq_values(x, y) =   
     match (x, y) with
     | (Int(v1, t1), Int(v2, t2)) -> 
         let result_trust = min_trust_level [t1; t2] in
         Bool(v1 = v2, result_trust)
-    | _ -> raise (TrustViolation "Type mismatch in equality")
+    | (String(v1, t1), String(v2, t2)) ->
+        let result_trust = min_trust_level [t1; t2] in
+        Bool(v1 = v2, result_trust)
+    | (Bool(v1, t1), Bool(v2, t2)) ->
+        let result_trust = min_trust_level [t1; t2] in
+        Bool(v1 = v2, result_trust)
+    | _ -> raise (TrustViolation "Type mismatch in equality - incompatible types")
 
 (* Integer addition *)     
 let int_plus(x, y) = 
@@ -206,7 +212,7 @@ and eval (e:exp) (s:evT env) : evT =
     | Div(e1, e2) -> int_div((eval e1 s), (eval e2 s))
 
     | IsZero(e1) -> is_zero (eval e1 s)
-    | Eq(e1, e2) -> int_eq((eval e1 s), (eval e2 s))
+    | Eq(e1, e2) -> eq_values((eval e1 s), (eval e2 s))
     | LessThan(e1, e2) -> less_than((eval e1 s),(eval e2 s))
     | GreaterThan(e1, e2) -> greater_than((eval e1 s),(eval e2 s))
 
