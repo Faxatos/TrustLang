@@ -159,6 +159,23 @@ let handle_validation_result validation_result value =
     | _ ->
         raise (TrustViolation "Validation function should return untrusted value, since it's handling untrusted values")
 
+let downgrade_untrusted_result (func_trust: trust_level) (result: evT) : evT =
+    match func_trust with
+    | Untrust -> 
+        (* If function is untrusted, downgrade any trusted results to untrusted *)
+        (match result with
+         | Int(v, Trust) -> Int(v, Untrust)
+         | Bool(v, Trust) -> Bool(v, Untrust) 
+         | String(v, Trust) -> String(v, Untrust)
+         | Closure(p, b, e, Trust) -> Closure(p, b, e, Untrust)
+         | RecClosure(f, p, b, e, Trust) -> RecClosure(f, p, b, e, Untrust)
+         (* TrustClosures cannot be downgraded *)
+         | TrustClosure(_, _, _) -> 
+             raise (SecurityError "Untrusted function cannot produce TrustClosure")
+         | Module(n, bs, es, env, Trust) -> Module(n, bs, es, env, Untrust)
+         | _ -> result)
+    | Trust -> result (* Trusted functions can return trusted results *)
+
 let rec match_pattern (pattern: pattern) (value: evT) (env: evT env) : evT env option =
     match pattern with
     | PVar(id) -> Some (bind env id value)
@@ -196,23 +213,6 @@ and eval_module_content (content: module_content) (env: evT env) (entries: ide l
         let (bindings, final_entries) = eval_module_content next env (id :: entries) in
         (bindings, final_entries)
     | ModuleEnd -> ([], entries)
-
-let downgrade_untrusted_result (func_trust: trust_level) (result: evT) : evT =
-    match func_trust with
-    | Untrust -> 
-        (* If function is untrusted, downgrade any trusted results to untrusted *)
-        (match result with
-         | Int(v, Trust) -> Int(v, Untrust)
-         | Bool(v, Trust) -> Bool(v, Untrust) 
-         | String(v, Trust) -> String(v, Untrust)
-         | Closure(p, b, e, Trust) -> Closure(p, b, e, Untrust)
-         | RecClosure(f, p, b, e, Trust) -> RecClosure(f, p, b, e, Untrust)
-         (* TrustClosures cannot be downgraded *)
-         | TrustClosure(_, _, _) -> 
-             raise (SecurityError "Untrusted function cannot produce TrustClosure")
-         | Module(n, bs, es, env, Trust) -> Module(n, bs, es, env, Untrust)
-         | _ -> result)
-    | Trust -> result (* Trusted functions can return trusted results *)
 
 (* Interpreter *)
 and eval (e:exp) (s:evT env) : evT = 

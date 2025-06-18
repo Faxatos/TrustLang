@@ -1,5 +1,7 @@
 open Ast
 
+exception SecurityError of string
+
 (* Calculate the minimum trust level from a list of trust levels *)
 let min_trust_level (levels: trust_level list) : trust_level =
     if List.for_all (fun t -> t = Trust) levels then Trust else Untrust
