@@ -212,6 +212,130 @@ let run_security_suite () =
                 Apply(Den("trusted_func"), Den("trusted_val"))))
   ) in
 
+    (* Test 14: Try to promote untrusted function to trusted - should fail *)
+  print_test_header "Test_14: Try to promote untrusted function to trusted via TrustLet";
+  execWithFailure(
+      Let("untrusted_func", Fun("x", Den("x")),
+          TrustLet("trusted_func", Trust, Den("untrusted_func"),
+                  Den("trusted_func")))
+  );
+
+  (* Test 15: Try to promote untrusted recursive function to trusted - should fail *)
+  print_test_header "Test_15: Try to promote untrusted recursive function to trusted via TrustLet";
+  execWithFailure(
+      Letrec("factorial", "n",
+            IfThenElse(IsZero(Den("n")), 
+                      EInt(1), 
+                      Prod(Den("n"), Apply(Den("factorial"), Diff(Den("n"), EInt(1))))),
+            TrustLet("trusted_factorial", Trust, Den("factorial"),
+                    Den("trusted_factorial")))
+  );
+
+  (* Test 16: Untrusted function with trusted input should return untrusted result *)
+  print_test_header "Test_16: Untrusted function processing trusted data returns untrusted result";
+  let result = execWithSuccess(
+      Let("untrusted_func", Fun("x", Den("x")), (* identity function *)
+          TrustLet("trusted_data", Trust, EInt(42),
+                  Apply(Den("untrusted_func"), Den("trusted_data"))))
+  ) in
+  (* Verify the result is untrusted *)
+  let trust_level = getTrustLevel result in
+  if trust_level = Untrust then
+      Printf.printf "✓ PASS: Result correctly downgraded to untrusted\n"
+  else
+      Printf.printf "✗ FAIL: Result should be untrusted but got trusted\n";
+
+  (* Test 17: Untrusted function doing computation on trusted data returns untrusted result *)
+  print_test_header "Test_17: Untrusted function computation on trusted data returns untrusted result";
+  let result = execWithSuccess(
+      Let("untrusted_func", Fun("x", Sum(Den("x"), EInt(10))), (* add 10 *)
+          TrustLet("trusted_data", Trust, EInt(5),
+                  Apply(Den("untrusted_func"), Den("trusted_data"))))
+  ) in
+  (* Verify the result is untrusted even though computation was on trusted data *)
+  let _ = getTrustLevel result in
+  match result with
+  | Int(value, trust) ->
+      if value = 15 && trust = Untrust then
+          Printf.printf "✓ PASS: Computation result (15) correctly downgraded to untrusted\n"
+      else
+          Printf.printf "✗ FAIL: Expected Int(15, Untrust) but got Int(%d, %s)\n" 
+                      value (if trust = Trust then "Trust" else "Untrust")
+  | _ -> Printf.printf "✗ FAIL: Expected Int result\n";
+
+  (* Test 18: Trusted function with trusted data still returns trusted result *)
+  print_test_header "Test_18: Trusted function with trusted data returns trusted result";
+  let result = execWithSuccess(
+      Let("trusted_func",
+          TrustFun(make_signature [make_param "x" Trust] Trust, Sum(Den("x"), EInt(1))),
+          TrustLet("trusted_data", Trust, EInt(41),
+                  Apply(Den("trusted_func"), Den("trusted_data"))))
+  ) in
+  let _ = getTrustLevel result in
+  match result with
+  | Int(value, trust) ->
+      if value = 42 && trust = Trust then
+          Printf.printf "✓ PASS: Trusted function result (42) remains trusted\n"
+      else
+          Printf.printf "✗ FAIL: Expected Int(42, Trust) but got Int(%d, %s)\n" 
+                      value (if trust = Trust then "Trust" else "Untrust")
+  | _ -> Printf.printf "✗ FAIL: Expected Int result\n";
+
+  (* Test 19: Verify TrustLet can still promote data values to trusted *)
+  print_test_header "Test_19: TrustLet can still promote data values to trusted";
+  let result = execWithSuccess(
+      Let("untrusted_int", EInt(100),
+          TrustLet("trusted_int", Trust, Den("untrusted_int"),
+                  Den("trusted_int")))
+  ) in
+  let _ = getTrustLevel result in
+  match result with
+  | Int(value, trust) ->
+      if value = 100 && trust = Trust then
+          Printf.printf "✓ PASS: Data value (100) correctly promoted to trusted\n"
+      else
+          Printf.printf "✗ FAIL: Expected Int(100, Trust) but got Int(%d, %s)\n" 
+                      value (if trust = Trust then "Trust" else "Untrust")
+  | _ -> Printf.printf "✗ FAIL: Expected Int result\n";
+
+  (* Test 20: Complex scenario - untrusted function in trusted context *)
+  print_test_header "Test_20: Complex scenario - untrusted function processing trusted data in chain";
+  let result = execWithSuccess(
+      Let("untrusted_double", Fun("x", Prod(Den("x"), EInt(2))),
+          Let("untrusted_add_one", Fun("y", Sum(Den("y"), EInt(1))),
+              TrustLet("trusted_data", Trust, EInt(5),
+                      Apply(Den("untrusted_add_one"), 
+                            Apply(Den("untrusted_double"), Den("trusted_data"))))))
+  ) in
+  let _ = getTrustLevel result in
+  match result with
+  | Int(value, trust) ->
+      if value = 11 && trust = Untrust then
+          Printf.printf "✓ PASS: Chain computation (5*2+1=11) correctly results in untrusted\n"
+      else
+          Printf.printf "✗ FAIL: Expected Int(11, Untrust) but got Int(%d, %s)\n" 
+                      value (if trust = Trust then "Trust" else "Untrust")
+  | _ -> Printf.printf "✗ FAIL: Expected Int result\n";
+
+  (* Test 21: Verify that already trusted functions can be "promoted" (no-op) *)
+  print_test_header "Test_21: Already trusted function can be promoted (no-op)";
+  let result = execWithSuccess(
+      Let("trusted_func",
+          TrustFun(make_signature [make_param "x" Trust] Trust, Den("x")),
+          TrustLet("still_trusted_func", Trust, Den("trusted_func"),
+                  TrustLet("trusted_input", Trust, EInt(99),
+                          Apply(Den("still_trusted_func"), Den("trusted_input")))))
+  ) in
+  let _ = getTrustLevel result in
+  match result with
+  | Int(value, trust) ->
+      if value = 99 && trust = Trust then
+          Printf.printf "✓ PASS: Already trusted function promotion is no-op, result remains trusted\n"
+      else
+          Printf.printf "✗ FAIL: Expected Int(99, Trust) but got Int(%d, %s)\n" 
+                      value (if trust = Trust then "Trust" else "Untrust")
+  | _ -> Printf.printf "✗ FAIL: Expected Int result\n";
+
   (* Test 14: String operations with trust propagation *)
   print_test_header "Test_14: String operations with trust propagation";
   let _ = execWithSuccess(
