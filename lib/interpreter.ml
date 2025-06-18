@@ -302,40 +302,41 @@ and eval (e:exp) (s:evT env) : evT =
 
     | Validate(e) ->
         let value = eval e s in
-        (match value with
-         | String(content, Untrust) ->
-             if is_safe_content content then String(content, Trust)
-             else raise (SecurityError "Validation failed: unsafe content")
-         | Int(v, Untrust) ->
-             if v >= 0 then Int(v, Trust)
-             else raise (SecurityError "Validation failed: negative integer")
-         | Bool(v, Untrust) -> Bool(v, Trust)
-         | _ -> raise (TrustViolation "Cannot validate already trusted or non-validatable data"))
+        if getTrustLevel value = Trust then value
+        else
+            (match value with
+            | String(content, Untrust) ->
+                if is_safe_content content then String(content, Trust)
+                else raise (SecurityError "Validation failed: unsafe content")
+            | Int(v, Untrust) ->
+                if v >= 0 then Int(v, Trust)
+                else raise (SecurityError "Validation failed: negative integer")
+            | Bool(v, Untrust) -> Bool(v, Trust)
+            | _ -> raise (TrustViolation "Cannot validate already trusted or non-validatable data"))
     
     | ValidateWith(val_func_expr, value_expr) -> (
-        let val_func = eval val_func_expr s in
         let value = eval value_expr s in
         
-        if getTrustLevel value = Trust then
-            raise (TrustViolation "Cannot validate already trusted data");
-        
-        match val_func with
-        | TrustClosure(signature, body, env) ->
-            let arg_name = 
-                match signature.params with
-                | p::_ -> p.param_name
-                | [] -> "input" 
-            in
-            let new_env = bind env arg_name value in
-            let validation_result = eval body new_env in
-            handle_validation_result validation_result value
-        | Closure(arg, body, env, Trust) ->
-            let new_env = bind env arg value in
-            let validation_result = eval body new_env in
-            handle_validation_result validation_result value
-        | _ ->
-            raise (TrustViolation "Validation must be performed by a trusted function")
-    )
+        if getTrustLevel value = Trust then value
+        else
+            let val_func = eval val_func_expr s in
+            match val_func with
+            | TrustClosure(signature, body, env) ->
+                let arg_name = 
+                    match signature.params with
+                    | p::_ -> p.param_name
+                    | [] -> "input" 
+                in
+                let new_env = bind env arg_name value in
+                let validation_result = eval body new_env in
+                handle_validation_result validation_result value
+            | Closure(arg, body, env, Trust) ->
+                let new_env = bind env arg value in
+                let validation_result = eval body new_env in
+                handle_validation_result validation_result value
+            | _ ->
+                raise (TrustViolation "Validation must be performed by a trusted function")
+        )
 
     | Module(name, content, entry_exprs) ->
         let entry_names = List.map (function Den(id) -> id | _ -> raise (ModuleError "Entry must be identifier")) entry_exprs in
