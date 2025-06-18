@@ -71,11 +71,12 @@ let promoteTrust (level: trust_level) (value: evT) : evT =
     (* Allow promoting already trusted functions (no-op) *)
     | (Trust, Closure(p, b, e, Trust)) -> Closure(p, b, e, Trust)
     | (Trust, RecClosure(f, p, b, e, Trust)) -> RecClosure(f, p, b, e, Trust)
-    (* TrustClosure and other types cannot be promoted via TrustLet *)
-    | (Trust, TrustClosure(_, _, _)) -> 
-        raise (SecurityError "TrustClosure cannot be promoted via TrustLet")
-    | (Trust, Module(_, _, _, _, _)) ->
-        raise (SecurityError "Modules cannot be promoted via TrustLet") 
+    (* TrustClosure is already trusted - allow binding at Trust level (no-op) *)
+    | (Trust, TrustClosure(signature, body, env)) -> TrustClosure(signature, body, env)
+    (* Modules cannot be promoted via TrustLet, but can be bound at Trust level if already trusted *)
+    | (Trust, Module(n, bs, es, env, Trust)) -> Module(n, bs, es, env, Trust)
+    | (Trust, Module(_, _, _, _, Untrust)) ->
+        raise (SecurityError "Cannot promote untrusted modules to trusted level") 
     | _ -> value
 
 (* Validate parameter trust levels *)
