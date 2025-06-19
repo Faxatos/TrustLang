@@ -1,6 +1,11 @@
 open Ast
 
+(* Runtime errors *)
+exception TrustViolation of string
 exception SecurityError of string
+exception ModuleError of string
+exception PluginError of string
+exception ParameterError of string
 
 (* Calculate the minimum trust level from a list of trust levels *)
 let min_trust_level (levels: trust_level list) : trust_level =
@@ -87,26 +92,26 @@ let validateTrustedBinding (value: evT) : evT =
     | Bool(v, Untrust) -> Bool(v, Trust)
     (* Untrusted functions cannot be bound with TrustLet *)
     | Closure(_, _, _, Untrust) -> 
-        raise (SecurityError "TrustLet cannot bind untrusted functions - use Let for Fun, TrustLet for TrustFun")
+        raise (TrustViolation "TrustLet cannot bind untrusted functions - use Let for Fun, TrustLet for TrustFun")
     | RecClosure(_, _, _, _, Untrust) -> 
-        raise (SecurityError "TrustLet cannot bind untrusted recursive functions - use Let for Fun, TrustLet for TrustFun")
+        raise (TrustViolation "TrustLet cannot bind untrusted recursive functions - use Let for Fun, TrustLet for TrustFun")
     | Module(_, _, _, _, Untrust) -> 
-        raise (SecurityError "TrustLet cannot bind untrusted modules")
+        raise (TrustViolation "TrustLet cannot bind untrusted modules")
     | Plugin(_, _) -> 
-        raise (SecurityError "TrustLet cannot bind plugins")
+        raise (TrustViolation "TrustLet cannot bind plugins")
     | UnBound -> 
-        raise (SecurityError "TrustLet cannot bind unbound values")
+        raise (TrustViolation "TrustLet cannot bind unbound values")
 
 (* Enforce untrusted binding - used by Let *)
 let enforceUntrustedBinding (value: evT) : evT =
     match value with
-    | Int(_, Trust) -> raise (SecurityError "Let can only bind untrusted values - trusted values require TrustLet")
-    | Bool(_, Trust) -> raise (SecurityError "Let can only bind untrusted values - trusted values require TrustLet")
-    | String(_, Trust) -> raise (SecurityError "Let can only bind untrusted values - trusted values require TrustLet")
-    | Closure(_, _, _, Trust) -> raise (SecurityError "Let can only bind untrusted values - trusted functions require TrustLet")
-    | RecClosure(_, _, _, _, Trust) -> raise (SecurityError "Let can only bind untrusted values - trusted functions require TrustLet")
-    | TrustClosure(_, _, _) -> raise (SecurityError "Let can only bind untrusted values - TrustClosure requires TrustLet")
-    | Module(_, _, _, _, Trust) -> raise (SecurityError "Let can only bind untrusted values - trusted modules require TrustLet")
+    | Int(_, Trust) -> raise (TrustViolation "Let can only bind untrusted values - trusted values require TrustLet")
+    | Bool(_, Trust) -> raise (TrustViolation "Let can only bind untrusted values - trusted values require TrustLet")
+    | String(_, Trust) -> raise (TrustViolation "Let can only bind untrusted values - trusted values require TrustLet")
+    | Closure(_, _, _, Trust) -> raise (TrustViolation "Let can only bind untrusted values - trusted functions require TrustLet")
+    | RecClosure(_, _, _, _, Trust) -> raise (TrustViolation "Let can only bind untrusted values - trusted functions require TrustLet")
+    | TrustClosure(_, _, _) -> raise (TrustViolation "Let can only bind untrusted values - TrustClosure requires TrustLet")
+    | Module(_, _, _, _, Trust) -> raise (TrustViolation "Let can only bind untrusted values - trusted modules require TrustLet")
     (* Accept all untrusted values *)
     | Int(_, Untrust) | Bool(_, Untrust) | String(_, Untrust) -> value
     | Closure(_, _, _, Untrust) | RecClosure(_, _, _, _, Untrust) -> value

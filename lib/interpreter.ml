@@ -1,13 +1,6 @@
 open Ast
 open Types
 
-(* Runtime errors *)
-exception TrustViolation of string
-exception SecurityError of string
-exception ModuleError of string
-exception PluginError of string
-exception ParameterError of string
-
 (* Empty environment *)
 let emptyenv = function _ -> UnBound
 
@@ -41,7 +34,7 @@ let is_safe_content (content: string) : bool =
 let is_zero(x) = 
     match x with
     | Int(v, t) -> Bool(v = 0, t)
-    | _ -> raise (TrustViolation "Type mismatch in is_zero")
+    | _ -> raise (ParameterError "Type mismatch in is_zero")
 
 (* Integer - String - Bool equality *)
 let eq_values(x, y) =   
@@ -55,7 +48,7 @@ let eq_values(x, y) =
     | (Bool(v1, t1), Bool(v2, t2)) ->
         let result_trust = min_trust_level [t1; t2] in
         Bool(v1 = v2, result_trust)
-    | _ -> raise (TrustViolation "Type mismatch in equality - incompatible types")
+    | _ -> raise (ParameterError "Type mismatch in equality - incompatible types")
 
 (* Integer addition *)     
 let int_plus(x, y) = 
@@ -63,7 +56,7 @@ let int_plus(x, y) =
     | (Int(v1, t1), Int(v2, t2)) -> 
         let result_trust = min_trust_level [t1; t2] in
         Int(v1 + v2, result_trust)
-    | _ -> raise (TrustViolation "Type mismatch in addition")
+    | _ -> raise (ParameterError "Type mismatch in addition")
 
 (* Integer subtraction *)
 let int_sub(x, y) = 
@@ -71,7 +64,7 @@ let int_sub(x, y) =
     | (Int(v1, t1), Int(v2, t2)) -> 
         let result_trust = min_trust_level [t1; t2] in
         Int(v1 - v2, result_trust)
-    | _ -> raise (TrustViolation "Type mismatch in subtraction")
+    | _ -> raise (ParameterError "Type mismatch in subtraction")
 
 (* Integer product *)
 let int_times(x, y) =
@@ -79,17 +72,17 @@ let int_times(x, y) =
     | (Int(v1, t1), Int(v2, t2)) -> 
         let result_trust = min_trust_level [t1; t2] in
         Int(v1 * v2, result_trust)
-    | _ -> raise (TrustViolation "Type mismatch in multiplication")
+    | _ -> raise (ParameterError "Type mismatch in multiplication")
     
 (* Integer division *)
 let int_div(x, y) =
     match (x, y) with
     | (Int(v1, t1), Int(v2, t2)) -> 
-        if v2 = 0 then raise (SecurityError "Division by zero")
+        if v2 = 0 then raise (ParameterError "Division by zero")
         else
             let result_trust = min_trust_level [t1; t2] in
             Int(v1 / v2, result_trust)
-    | _ -> raise (TrustViolation "Type mismatch in division")
+    | _ -> raise (ParameterError "Type mismatch in division")
 
 (* Comparison operations *)
 let less_than(x, y) = 
@@ -97,14 +90,14 @@ let less_than(x, y) =
     | (Int(v1, t1), Int(v2, t2)) -> 
         let result_trust = min_trust_level [t1; t2] in
         Bool(v1 < v2, result_trust)
-    | _ -> raise (TrustViolation "Type mismatch in comparison")
+    | _ -> raise (ParameterError "Type mismatch in comparison")
 
 let greater_than(x, y) = 
     match (x, y) with
     | (Int(v1, t1), Int(v2, t2)) -> 
         let result_trust = min_trust_level [t1; t2] in
         Bool(v1 > v2, result_trust)
-    | _ -> raise (TrustViolation "Type mismatch in comparison")
+    | _ -> raise (ParameterError "Type mismatch in comparison")
 
 (* Logical operations *)
 let bool_and(x,y) = 
@@ -112,19 +105,19 @@ let bool_and(x,y) =
     | (Bool(v1, t1), Bool(v2, t2)) -> 
         let result_trust = min_trust_level [t1; t2] in
         Bool(v1 && v2, result_trust)
-    | _ -> raise (TrustViolation "Type mismatch in logical and")
+    | _ -> raise (ParameterError "Type mismatch in logical and")
 
 let bool_or(x,y) = 
     match (x, y) with
     | (Bool(v1, t1), Bool(v2, t2)) -> 
         let result_trust = min_trust_level [t1; t2] in
         Bool(v1 || v2, result_trust)
-    | _ -> raise (TrustViolation "Type mismatch in logical or")
+    | _ -> raise (ParameterError "Type mismatch in logical or")
 
 let bool_not(x) = 
     match x with
     | Bool(v, t) -> Bool(not v, t)
-    | _ -> raise (TrustViolation "Type mismatch in logical not")
+    | _ -> raise (ParameterError "Type mismatch in logical not")
 
 let str_contains(x, y) =
     match (x, y) with
@@ -143,25 +136,25 @@ let str_contains(x, y) =
                 in check 0
         in
         Bool(contains str substr, result_trust)
-    | _ -> raise (TrustViolation "Type mismatch in string contains")
+    | _ -> raise (ParameterError "Type mismatch in string contains")
 
 let str_length(x) =
     match x with
     | String(str, t) -> Int(String.length str, t)
-    | _ -> raise (TrustViolation "Type mismatch in string length")
+    | _ -> raise (ParameterError "Type mismatch in string length")
 
 let str_concat(x, y) =
     match (x, y) with
     | (String(s1, t1), String(s2, t2)) ->
         let result_trust = min_trust_level [t1; t2] in
         String(s1 ^ s2, result_trust)
-    | _ -> raise (TrustViolation "Type mismatch in string concatenation")
+    | _ -> raise (ParameterError "Type mismatch in string concatenation")
 
 let handle_validation_result validation_result value = 
     match validation_result with
     | Bool(true, _) -> promoteTrust value
     | Bool(false, _) -> raise (SecurityError "Custom validation failed")
-    | _ -> raise (TrustViolation "Validation function must return a boolean")
+    | _ -> raise (ParameterError "Validation function must return a boolean")
 
 let downgrade_untrusted_result (func_trust: trust_level) (result: evT) : evT =
     match func_trust with
@@ -403,7 +396,7 @@ and eval (e:exp) (s:evT env) : evT =
         (match eval e1 s with
          | Bool(true, _) -> eval e2 s
          | Bool(false, _) -> eval e3 s
-         | _ -> raise (TrustViolation "If condition must be boolean"))
+         | _ -> raise (ParameterError "If condition must be boolean"))
     
     | Let(i, e, ebody) ->
         let value = eval e s in
