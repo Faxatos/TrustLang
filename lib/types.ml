@@ -86,7 +86,7 @@ let validateTrustedBinding (value: evT) : evT =
         else raise (SecurityError "TrustLet validation failed: negative integer")
     | Bool(v, Untrust) -> Bool(v, Trust)
     (* Untrusted functions cannot be bound with TrustLet *)
-    Closure(_, _, _, Untrust) -> 
+    | Closure(_, _, _, Untrust) -> 
         raise (SecurityError "TrustLet cannot bind untrusted functions - use Let for Fun, TrustLet for TrustFun")
     | RecClosure(_, _, _, _, Untrust) -> 
         raise (SecurityError "TrustLet cannot bind untrusted recursive functions - use Let for Fun, TrustLet for TrustFun")
