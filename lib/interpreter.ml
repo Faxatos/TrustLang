@@ -310,6 +310,7 @@ and eval (e:exp) (s:evT env) : evT =
     | Validate(e) ->
         let value = eval e s in
         (match value with
+         | String(_, Trust) | Int(_, Trust) | Bool(_, Trust) -> value
          | String(content, Untrust) ->
              if is_safe_content content then promoteTrust value
              else raise (SecurityError "Validation failed: unsafe content")
