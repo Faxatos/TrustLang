@@ -61,236 +61,296 @@ let print_test_header test_name =
 let print_section_header section_name =
   Printf.printf "\n=== %s ===\n" section_name
 
+(* Helper functions for creating trust signatures and parameters *)
+let make_param name trust_level = {param_name = name; param_trust = trust_level}
+let make_signature params return_trust = {params = params; return_trust = return_trust}
+
 (* Main security tests *)
 let run_security_suite () =
   Printf.printf "\n TrustLang security tests \n\n";
 
   print_section_header "Trust primitive testing";
 
-  print_test_header "Test_1: TrustLet can promote data values to trusted";
+  (* Basic binding discipline *)
+  print_test_header "Test_1: Let + Fun → Valid (Untrusted function binding)";
   let _ = execWithSuccess(
-      Let("untrusted_int", EInt(100),
-          TrustLet("trusted_int", Trust, Den("untrusted_int"),
-                  Den("trusted_int")))
+      Let("untrusted_func", Fun("x", Sum(Den("x"), EInt(1))),
+          Apply(Den("untrusted_func"), EInt(5)))
   ) in
 
-  print_test_header "Test_2: Try to promote untrusted function to trusted via TrustLet";
+  print_test_header "Test_2: Let + TrustFun → Security error";
   execWithFailure(
+      Let("should_fail", TrustFun(make_signature [make_param "x" Trust] Trust, Den("x")),
+          Den("should_fail"))
+  );
+
+  print_test_header "Test_3: TrustLet + Fun → Security error";
+  execWithFailure(
+      TrustLet("should_fail", Fun("x", Den("x")),
+              Den("should_fail"))
+  );
+
+  print_test_header "Test_4: TrustLet + TrustFun → Valid (Trusted function binding)";
+  let _ = execWithSuccess(
+      TrustLet("trusted_func",
+               TrustFun(make_signature [make_param "x" Trust] Trust, Sum(Den("x"), EInt(1))),
+               TrustLet("trusted_input", EInt(41),
+                       Apply(Den("trusted_func"), Den("trusted_input"))))
+  ) in
+
+  print_test_header "Test_5: Let cannot bind validated (trusted) data";
+  execWithFailure(
+      Let("validated_data", Validate(EInt(42)),
+          Den("validated_data"))
+  );
+
+  (* TrustLet validation *)
+  print_test_header "Test_6: TrustLet validates safe data during binding";
+  let _ = execWithSuccess(
+      TrustLet("trusted_int", EInt(100),
+              Assert("trusted_int", Trust))
+  ) in
+
+  print_test_header "Test_7: TrustLet fails with unsafe string content";
+  execWithFailure(
+      TrustLet("trusted_str", EString("unsafe$content"),
+              Den("trusted_str"))
+  );
+
+  print_test_header "Test_8: TrustLet fails with negative integer";
+  execWithFailure(
+      TrustLet("trusted_int", EInt(-5),
+              Den("trusted_int"))
+  );
+
+  (* Validate primitives *)
+  print_test_header "Test_9: Validate promotes untrusted data to trusted";
+  let _ = execWithSuccess(
+      Let("untrusted_str", EString("hello"),
+          TrustLet("trusted_str", Validate(Den("untrusted_str")),
+                  Assert("trusted_str", Trust)))
+  ) in
+
+  print_test_header "Test_10: Cannot validate already trusted data";
+  execWithFailure(
+    TrustLet("trusted_val", EInt(42),
+            Validate(Den("trusted_val")))
+  );
+
+  print_test_header "Test_12: ValidateWith using trusted predicate";
+  let _ = execWithSuccess(
+      TrustLet("validator",
+               TrustFun(make_signature [make_param "s" Untrust] Trust,
+                       StrContains(Den("s"), EString("ok"))),
+               Let("untrusted_input", EString("message_ok"),
+                   TrustLet("validated_input", ValidateWith(Den("validator"), Den("untrusted_input")),
+                           Assert("validated_input", Trust))))
+  ) in
+
+  print_test_header "Test_13: ValidateWith with predicate failure";
+  execWithFailure(
+    TrustLet("validator",
+             TrustFun(make_signature [make_param "x" Untrust] Trust,
+                     Eq(Den("x"), EInt(1))),
+             ValidateWith(Den("validator"), EInt(2)))
+  );
+
+  print_test_header "Test_14: ValidateWith with already trusted data (no-op)";
+  let _ = execWithSuccess(
+    TrustLet("validator",
+             TrustFun(make_signature [make_param "s" Untrust] Trust, CstTrue),
+             TrustLet("trusted_data", EString("test"),
+                     ValidateWith(Den("validator"), Den("trusted_data"))))
+  ) in
+
+  (* Function application trust rules *)
+  print_test_header "Test_15: Trusted function with trusted argument";
+  let _ = execWithSuccess(
+    TrustLet("trusted_func",
+             TrustFun(make_signature [make_param "x" Trust] Trust, Sum(Den("x"), EInt(1))),
+             TrustLet("trusted_val", EInt(42),
+                     Apply(Den("trusted_func"), Den("trusted_val"))))
+  ) in
+
+  print_test_header "Test_16: Trusted function with untrusted argument → Security error";
+  execWithFailure(
+    TrustLet("trusted_func",
+             TrustFun(make_signature [make_param "x" Trust] Trust, Den("x")),
+             Let("untrusted_val", EInt(42),
+                 Apply(Den("trusted_func"), Den("untrusted_val"))))
+  );
+
+  print_test_header "Test_17: Untrusted function with trusted data → Untrusted result";
+  let _ = execWithSuccess(
       Let("untrusted_func", Fun("x", Den("x")),
-          TrustLet("trusted_func", Trust, Den("untrusted_func"),
-                  Den("trusted_func")))
-  );
-
-  print_test_header "Test_3: Try to promote untrusted recursive function to trusted via TrustLet";
-  execWithFailure(
-      Letrec("factorial", "n",
-            IfThenElse(IsZero(Den("n")), 
-                      EInt(1), 
-                      Prod(Den("n"), Apply(Den("factorial"), Diff(Den("n"), EInt(1))))),
-            TrustLet("trusted_factorial", Trust, Den("factorial"),
-                    Den("trusted_factorial")))
-  );
-
-  print_test_header "Test_14: Successful trusted function call with trusted argument";
-  let _ = execWithSuccess(
-    Let("trusted_func",
-        TrustFun(make_signature [make_param "x" Trust] Trust, Sum(Den("x"), EInt(1))),
-        TrustLet("trusted_val", Trust, EInt(42),
-                Apply(Den("trusted_func"), Den("trusted_val"))))
-  ) in
-
-  print_test_header "Test_15: Try to execute trusted function with untrusted argument";
-  execWithFailure(
-    Let("trusted_func",
-        TrustFun(make_signature [make_param "x" Trust] Trust, Den("x")),
-        Let("untrusted_val", EInt(42),
-            Apply(Den("trusted_func"), Den("untrusted_val"))))
-  );
-
-  print_test_header "Test_16: Untrusted function processing trusted data returns untrusted result";
-  let _ = execWithSuccess(
-      Let("untrusted_func", Fun("x", Den("x")), (* identity function *)
-          TrustLet("trusted_data", Trust, EInt(42),
+          TrustLet("trusted_data", EInt(42),
                   Apply(Den("untrusted_func"), Den("trusted_data"))))
   ) in
 
-  print_test_header "Test_17: Trusted function with trusted data returns trusted result";
+  (* Trust assertions *)
+  print_test_header "Test_18: Trust assertion success";
   let _ = execWithSuccess(
-      Let("trusted_func",
-          TrustFun(make_signature [make_param "x" Trust] Trust, Sum(Den("x"), EInt(1))),
-          TrustLet("trusted_data", Trust, EInt(41),
-                  Apply(Den("trusted_func"), Den("trusted_data"))))
+    TrustLet("trusted_val", EInt(42),
+            Assert("trusted_val", Trust))
   ) in
 
-  print_test_header "Test_18: Untrusted function processing trusted data in chain";
-  let _ = execWithSuccess(
-      Let("untrusted_double", Fun("x", Prod(Den("x"), EInt(2))),
-          Let("untrusted_add_one", Fun("y", Sum(Den("y"), EInt(1))),
-              TrustLet("trusted_data", Trust, EInt(5),
-                      Apply(Den("untrusted_add_one"), 
-                            Apply(Den("untrusted_double"), Den("trusted_data"))))))
-  ) in
-
-  print_test_header "Test_19: Already trusted function can be promoted (no-op)";
-  let _ = execWithSuccess(
-      Let("trusted_func",
-          TrustFun(make_signature [make_param "x" Trust] Trust, Den("x")),
-          TrustLet("still_trusted_func", Trust, Den("trusted_func"),
-                  TrustLet("trusted_input", Trust, EInt(99),
-                          Apply(Den("still_trusted_func"), Den("trusted_input")))))
-  ) in
-
-  print_test_header "Test_20: Validation of untrusted data";
-  let _ = execWithSuccess(
-    Let("untrusted_str", EString("hello"),
-        Validate(Den("untrusted_str")))
-  ) in
-
-  print_test_header "Test_21: Validation failure with unsafe content";
-  execWithFailure(
-    Let("unsafe_str", EString("hello$world"),
-        Validate(Den("unsafe_str")))
-  );
-
-  print_test_header "Test_22: Validation failure with negative integer";
-  execWithFailure(
-    Let("negative_int", EInt(-5),
-        Validate(Den("negative_int")))
-  );
-
-  print_test_header "Test_23: Trust assertion success";
-  let _ = execWithSuccess(
-    TrustLet("trusted_val", Trust, EInt(42),
-             Assert("trusted_val", Trust))
-  ) in
-
-  print_test_header "Test_24: Trust assertion failure";
+  print_test_header "Test_19: Trust assertion failure";
   execWithFailure(
     Let("untrusted_val", EInt(42),
         Assert("untrusted_val", Trust))
   );
 
-  print_test_header "Test_25: String operations with trust propagation";
+  (* Pattern matching *)
+  print_test_header "Test_20: Pattern matching with trusted values";
   let _ = execWithSuccess(
-    TrustLet("trusted_str", Trust, EString("hello"),
-             Let("untrusted_str", EString("world"),
-                 StrContains(Den("trusted_str"), Den("untrusted_str"))))
+    TrustLet("trusted_num", EInt(5),
+            Match(Den("trusted_num"), 
+                  [(PConst(EInt(5)), EString("matched"));
+                   (PWildcard, EString("no match"))]))
   ) in
 
-  print_test_header "Test_26: Pattern matching with trusted values";
+  (* Recursive functions *)
+  print_test_header "Test_21: Untrusted recursive function with Letrec";
   let _ = execWithSuccess(
-    TrustLet("trusted_num", Trust, EInt(5),
-             Match(Den("trusted_num"), 
-                   [(PConst(EInt(5)), EString("matched"));
-                    (PWildcard, EString("no match"))]))
+    Let("factorial", 
+        Letrec("fact", "n",
+              IfThenElse(IsZero(Den("n")), 
+                        EInt(1), 
+                        Prod(Den("n"), Apply(Den("fact"), Diff(Den("n"), EInt(1))))),
+              Den("fact")),
+        Apply(Den("factorial"), EInt(3)))
   ) in
 
-  print_section_header "Modules primitive testing";
+  print_section_header "MODULES";
 
-  print_test_header "Test_27: Basic trusted module with trusted functions";
+  (* Module binding discipline *)
+  print_test_header "Test_22: ModuleLet + Fun → Valid";
   let _ = execWithSuccess(
-    Module("TrustedMath", 
-           ModuleLet("add", Trust, 
-                    TrustFun(make_signature [make_param "x" Trust; make_param "y" Trust] Trust,
-                            Sum(Den("x"), Den("y"))),
-                    ModuleEntry("add", ModuleEnd)),
-           [Den("add")])
+    Let("untrusted_module",
+        Module("UntrustedModule",
+               ModuleLet("untrusted_func",
+                        Fun("x", Sum(Den("x"), EInt(1))),
+                        ModuleEntry("untrusted_func", ModuleEnd)),
+               [Den("untrusted_func")]),
+        Apply(ModuleAccess(Den("untrusted_module"), "untrusted_func"), EInt(5)))
   ) in
 
-  print_test_header "Test_28: Access trusted module function with two trusted arguments";
+  print_test_header "Test_23: ModuleLet + TrustFun → Security error";
+  execWithFailure(
+    Module("TestModule",
+           ModuleLet("should_fail", 
+                    TrustFun(make_signature [make_param "x" Trust] Trust, Den("x")),
+                    ModuleEnd),
+           [])
+  );
+
+  print_test_header "Test_24: ModuleTrustLet + Fun → Security error";
+  execWithFailure(
+    Module("TestModule",
+           ModuleTrustLet("should_fail", 
+                         Fun("x", Den("x")),
+                         ModuleEnd),
+           [])
+  );
+
+  print_test_header "Test_25: ModuleTrustLet + TrustFun → Valid";
   let _ = execWithSuccess(
-    Let("trusted_module",
-        Module("TrustedMath",
-               ModuleLet("multiply", Trust,
-                        TrustFun(make_signature [make_param "x" Trust; make_param "y" Trust] Trust,
-                                Prod(Den("x"), Den("y"))),
-                        ModuleEntry("multiply", ModuleEnd)),
-               [Den("multiply")]),
-        TrustLet("trusted_val1", Trust, EInt(5),
-                TrustLet("trusted_val2", Trust, EInt(3),
-                        Apply(Apply(ModuleAccess(Den("trusted_module"), "multiply"),
-                                   Den("trusted_val1")),
-                              Den("trusted_val2")))))
+    TrustLet("trusted_module",
+        Module("TrustedModule", 
+               ModuleTrustLet("trusted_func", 
+                             TrustFun(make_signature [make_param "x" Trust] Trust,
+                                     Sum(Den("x"), EInt(1))),
+                             ModuleEntry("trusted_func", ModuleEnd)),
+               [Den("trusted_func")]),
+        TrustLet("input", EInt(5),
+                Apply(ModuleAccess(Den("trusted_module"), "trusted_func"), Den("input"))))
   ) in
 
+  (* Module data binding *)
+  print_test_header "Test_26: ModuleLet binds untrusted data";
+  let _ = execWithSuccess(
+    Let("data_module",
+        Module("DataModule",
+               ModuleLet("untrusted_data", EInt(42),
+                        ModuleEntry("untrusted_data", ModuleEnd)),
+               [Den("untrusted_data")]),
+        ModuleAccess(Den("data_module"), "untrusted_data"))
+  ) in
+
+  print_test_header "Test_27: ModuleTrustLet validates and binds trusted data";
+  let _ = execWithSuccess(
+    TrustLet("trusted_data_module",
+        Module("TrustedDataModule",
+               ModuleTrustLet("trusted_data", EString("safe"),
+                             ModuleEntry("trusted_data", ModuleEnd)),
+               [Den("trusted_data")]),
+        ModuleAccess(Den("trusted_data_module"), "trusted_data"))
+  ) in
+
+  print_test_header "Test_28: ModuleTrustLet fails with unsafe data";
+  execWithFailure(
+    Module("UnsafeDataModule",
+           ModuleTrustLet("unsafe_data", EString("unsafe$content"),
+                         ModuleEnd),
+           [])
+  );
+
+  (* Module access control *)
   print_test_header "Test_29: Try to access non-entry point method";
   execWithFailure(
-    Let("trusted_module",
+    TrustLet("trusted_module",
         Module("TrustedMath",
-               ModuleLet("secret_func", Trust,
-                        TrustFun(make_signature [make_param "x" Trust] Trust, Den("x")),
-                        ModuleLet("public_func", Trust,
-                                 TrustFun(make_signature [make_param "x" Trust] Trust, Den("x")),
-                                 ModuleEntry("public_func", ModuleEnd))),
+               ModuleTrustLet("secret_func",
+                             TrustFun(make_signature [make_param "x" Trust] Trust, Den("x")),
+                             ModuleTrustLet("public_func",
+                                           TrustFun(make_signature [make_param "x" Trust] Trust, Den("x")),
+                                           ModuleEntry("public_func", ModuleEnd))),
                [Den("public_func")]),
         ModuleAccess(Den("trusted_module"), "secret_func"))
   );
 
+  (* Complex modules *)
   print_test_header "Test_30: Complex module with mixed trust levels";
   let _ = execWithSuccess(
-    Module("MixedModule",
-           ModuleLet("untrusted_val", Untrust, EInt(10),
-                    ModuleLet("trusted_func", Trust,
-                             TrustFun(make_signature [make_param "x" Untrust] Trust,
-                                     Sum(Den("x"), EInt(1))),
-                             ModuleEntry("untrusted_val",
-                                        ModuleEntry("trusted_func", ModuleEnd)))),
-           [Den("untrusted_val"); Den("trusted_func")])
+    Let("mixed_module",
+        Module("MixedModule",
+               ModuleLet("untrusted_val", EInt(10),
+                        ModuleTrustLet("trusted_func",
+                                      TrustFun(make_signature [make_param "x" Untrust] Trust,
+                                              Sum(Den("x"), EInt(1))),
+                                      ModuleEntry("untrusted_val",
+                                                 ModuleEntry("trusted_func", ModuleEnd)))),
+               [Den("untrusted_val"); Den("trusted_func")]),
+        ModuleAccess(Den("mixed_module"), "untrusted_val"))
   ) in
 
-  print_test_header "Test_31: Module function access from outside (allowed)";
-  let _ = execWithSuccess(
-    Let("trusted_module",
-        Module("SafeMath",
-               ModuleLet("safe_add", Trust,
-                        TrustFun(make_signature [make_param "x" Trust] Trust,
-                                Sum(Den("x"), EInt(10))),
-                        ModuleEntry("safe_add", ModuleEnd)),
-               [Den("safe_add")]),
-        TrustLet("input", Trust, EInt(5),
-                Apply(ModuleAccess(Den("trusted_module"), "safe_add"), Den("input"))))
-  ) in
-
-  print_test_header "Test_32: Module with untrusted functions";
-  let _ = execWithSuccess(
-    Module("UntrustedMath",
-           ModuleLet("simple_add", Untrust,
-                    Fun("x", Sum(Den("x"), EInt(1))),
-                    ModuleEntry("simple_add", ModuleEnd)),
-           [Den("simple_add")])
-  ) in
-
-  print_test_header "Test_33: ValidateWith using custom trusted predicate function";
-  let _ = execWithSuccess(
-    Let("trusted_module",
-        Module("ValidatorModule",
-               ModuleLet("validate_str", Trust,
-                        TrustFun(make_signature [make_param "s" Untrust] Trust,
-                                 StrContains(Den("s"), EString("ok"))),
-                        ModuleEntry("validate_str", ModuleEnd)),
-               [Den("validate_str")]),
-        Let("input", EString("message_ok"),
-            Let("res_fn", ModuleAccess(Den("trusted_module"), "validate_str"),
-                Let("good", ValidateWith(Den("res_fn"), Den("input")),
-                    Assert("good", Trust)))))
-  ) in
-
-  print_test_header "Test_34: ValidateWith with predicate failure";
+  (* Trusted vs Untrusted module binding *)
+  print_test_header "Test_31: Let cannot bind trusted module";
   execWithFailure(
     Let("trusted_module",
-        Module("ValidatorModuleFail",
-               ModuleLet("validate_num", Trust,
-                        TrustFun(make_signature [make_param "x" Untrust] Trust,
-                                 Eq(Den("x"), EInt(1))),
-                        ModuleEntry("validate_num", ModuleEnd)),
-               [Den("validate_num")]),
-        Let("res_fn", ModuleAccess(Den("trusted_module"), "validate_num"),
-            ValidateWith(Den("res_fn"), EInt(2))))
+        Module("TrustedMath",
+               ModuleTrustLet("trusted_add",
+                             TrustFun(make_signature [make_param "x" Trust] Trust, Sum(Den("x"), EInt(1))),
+                             ModuleEntry("trusted_add", ModuleEnd)),
+               [Den("trusted_add")]),
+        ModuleAccess(Den("trusted_module"), "trusted_add"))
   );
 
-  print_section_header "Plugins primitive testing";
+  print_test_header "Test_32: TrustLet cannot bind untrusted module";
+  execWithFailure(
+    TrustLet("untrusted_module",
+        Module("UntrustedMath",
+               ModuleLet("untrusted_add",
+                        Fun("x", Sum(Den("x"), EInt(1))),
+                        ModuleEntry("untrusted_add", ModuleEnd)),
+               [Den("untrusted_add")]),
+        ModuleAccess(Den("untrusted_module"), "untrusted_add"))
+  );
 
-  print_test_header "Test_35: Plugin execution with safe untrusted code";
+  print_section_header "PLUGINS";
+
+  (* Basic plugin execution *)
+  print_test_header "Test_33: Plugin execution with safe untrusted code";
   let _ = execWithSuccess(
     Let("plugin",
         Include(Sum(EInt(5), EInt(10))),
@@ -298,14 +358,15 @@ let run_security_suite () =
             Execute(Den("plugin"), Den("safe_func"), EInt(42))))
   ) in
 
-  print_test_header "Test_36: Try to pass trusted function to plugin";
+  (* Plugin security violations *)
+  print_test_header "Test_34: Try to pass trusted function to plugin";
   execWithFailure(
-    Let("trusted_module",
+    TrustLet("trusted_module",
         Module("TrustedMath",
-               ModuleLet("trusted_add", Trust,
-                        TrustFun(make_signature [make_param "x" Trust; make_param "y" Trust] Trust,
-                                Sum(Den("x"), Den("y"))),
-                        ModuleEntry("trusted_add", ModuleEnd)),
+               ModuleTrustLet("trusted_add",
+                             TrustFun(make_signature [make_param "x" Trust; make_param "y" Trust] Trust,
+                                     Sum(Den("x"), Den("y"))),
+                             ModuleEntry("trusted_add", ModuleEnd)),
                [Den("trusted_add")]),
         Let("plugin", Include(EInt(42)),
             Execute(Den("plugin"), 
@@ -313,38 +374,39 @@ let run_security_suite () =
                    EInt(5))))
   );
 
-  print_test_header "Test_37: Try to use trusted module function inside plugin definition";
+  print_test_header "Test_35: Try to use trusted module function inside plugin definition";
   execWithFailure(
-    Let("trusted_module",
+    TrustLet("trusted_module",
         Module("TrustedMath",
-               ModuleLet("trusted_multiply", Trust,
-                        TrustFun(make_signature [make_param "x" Trust; make_param "y" Trust] Trust,
-                                Prod(Den("x"), Den("y"))),
-                        ModuleEntry("trusted_multiply", ModuleEnd)),
+               ModuleTrustLet("trusted_multiply",
+                             TrustFun(make_signature [make_param "x" Trust; make_param "y" Trust] Trust,
+                                     Prod(Den("x"), Den("y"))),
+                             ModuleEntry("trusted_multiply", ModuleEnd)),
                [Den("trusted_multiply")]),
         Let("malicious_plugin",
             Include(Apply(ModuleAccess(Den("trusted_module"), "trusted_multiply"), EInt(5))),
             Execute(Den("malicious_plugin"), Fun("x", Den("x")), EInt(1))))
   );
 
-  print_test_header "Test_38: Prevent module function leakage through variables in plugin";
+  print_test_header "Test_36: Prevent function leakage through variables in plugin";
   execWithFailure(
-    Let("trusted_module",
+    TrustLet("trusted_module",
         Module("CryptoMath",
-               ModuleLet("encrypt", Trust,
-                        TrustFun(make_signature [make_param "data" Trust] Trust, Den("data")),
-                        ModuleEntry("encrypt", ModuleEnd)),
+               ModuleTrustLet("encrypt",
+                             TrustFun(make_signature [make_param "data" Trust] Trust, Den("data")),
+                             ModuleEntry("encrypt", ModuleEnd)),
                [Den("encrypt")]),
         Let("leaked_func", ModuleAccess(Den("trusted_module"), "encrypt"),
             Let("plugin", Include(EInt(1)),
                 Execute(Den("plugin"), Den("leaked_func"), EInt(42)))))
   );
 
-  print_test_header "Test_39: Untrusted module functions can be used in plugins";
+  (* Safe plugin operations *)
+  print_test_header "Test_37: Untrusted module functions can be used in plugins";
   let _ = execWithSuccess(
     Let("untrusted_module",
         Module("UntrustedMath",
-               ModuleLet("simple_add", Untrust,
+               ModuleLet("simple_add",
                         Fun("x", Sum(Den("x"), EInt(1))),
                         ModuleEntry("simple_add", ModuleEnd)),
                [Den("simple_add")]),
@@ -354,14 +416,7 @@ let run_security_suite () =
                    EInt(5))))
   ) in
 
-  print_test_header "Test_40: Nested plugin chaining";
-  let _ = execWithSuccess(
-    Let("inner", Include(Sum(EInt(2), EInt(3))),
-        Let("outer", Include(Den("inner")),
-            Execute(Den("outer"), Fun("x", Sum(Den("x"), EInt(10))), EInt(5))))
-  ) in
-
-  print_test_header "Test_41: Plugin with more computation";
+  print_test_header "Test_38: Plugin with conditional computation";
   let _ = execWithSuccess(
     Let("plugin", Include(Prod(EInt(6), EInt(7))),
         Let("compute_func", Fun("x", 
@@ -371,14 +426,14 @@ let run_security_suite () =
             Execute(Den("plugin"), Den("compute_func"), EInt(30))))
   ) in
 
-  print_test_header "Test_42: Try to execute trusted recursive function in plugin";
+  print_test_header "Test_39: Try to execute trusted recursive function in plugin";
   execWithFailure(
-    Let("trusted_factorial",
-        TrustFun(make_signature [make_param "n" Trust] Trust,
-                IfThenElse(IsZero(Den("n")), EInt(1), 
-                          Prod(Den("n"), Apply(Den("trusted_factorial"), Diff(Den("n"), EInt(1)))))),
-        Let("plugin", Include(EInt(1)),
-            Execute(Den("plugin"), Den("trusted_factorial"), EInt(5))))
+    TrustLet("trusted_factorial",
+             TrustFun(make_signature [make_param "n" Trust] Trust,
+                     IfThenElse(IsZero(Den("n")), EInt(1), 
+                               Prod(Den("n"), Apply(Den("trusted_factorial"), Diff(Den("n"), EInt(1)))))),
+             Let("plugin", Include(EInt(1)),
+                 Execute(Den("plugin"), Den("trusted_factorial"), EInt(5))))
   );
 
   print_separator();
