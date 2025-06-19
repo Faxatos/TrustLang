@@ -327,13 +327,13 @@ and get_free_variables (expr: exp) : string list =
 
 (* Helper function to get a unique identifier for values (for debugging) *)
 let get_value_identifier = function
-    | Int(v, t) -> Printf.sprintf "Int(%d,%s)@%d" v (if t = Trust then "T" else "U") (Hashtbl.hash v)
-    | Bool(v, t) -> Printf.sprintf "Bool(%b,%s)@%d" v (if t = Trust then "T" else "U") (Hashtbl.hash v)
-    | String(v, t) -> Printf.sprintf "String(%s,%s)@%d" (String.sub v 0 (min 10 (String.length v))) (if t = Trust then "T" else "U") (Hashtbl.hash v)
-    | Closure(_, _, _, t) -> Printf.sprintf "Closure(%s)@%d" (if t = Trust then "T" else "U") (Random.int 10000)
-    | RecClosure(_, _, _, _, t) -> Printf.sprintf "RecClosure(%s)@%d" (if t = Trust then "T" else "U") (Random.int 10000)
+    | Int(v, t) -> Printf.sprintf "Int(%d,%s)@%d" v (if t = Trust then "Trust" else "Untrust") (Hashtbl.hash v)
+    | Bool(v, t) -> Printf.sprintf "Bool(%b,%s)@%d" v (if t = Trust then "Trust" else "Untrust") (Hashtbl.hash v)
+    | String(v, t) -> Printf.sprintf "String(%s,%s)@%d" (String.sub v 0 (min 10 (String.length v))) (if t = Trust then "Trust" else "Untrust") (Hashtbl.hash v)
+    | Closure(_, _, _, t) -> Printf.sprintf "Closure(%s)@%d" (if t = Trust then "Trust" else "Untrust") (Random.int 10000)
+    | RecClosure(_, _, _, _, t) -> Printf.sprintf "RecClosure(%s)@%d" (if t = Trust then "Trust" else "Untrust") (Random.int 10000)
     | TrustClosure(_, _, _) -> Printf.sprintf "TrustClosure@%d" (Random.int 10000)
-    | Module(name, _, _, _, t) -> Printf.sprintf "Module(%s,%s)@%d" name (if t = Trust then "T" else "U") (Random.int 10000)
+    | Module(name, _, _, _, t) -> Printf.sprintf "Module(%s,%s)@%d" name (if t = Trust then "Trust" else "Untrust") (Random.int 10000)
     | Plugin(_, _) -> Printf.sprintf "Plugin@%d" (Random.int 10000)
     | UnBound -> "UnBound"
 
@@ -361,13 +361,13 @@ and eval_module_content (content: module_content) (env: evT env) (entries: ide l
     match content with
     | ModuleLet(id, expr, next) ->
         let value = eval expr env in
-        let untrusted_value = enforceUntrustedBinding value in  (* Same as Let *)
+        let untrusted_value = enforceUntrustedBinding value in 
         let new_env = bind env id untrusted_value in
         let (bindings, final_entries) = eval_module_content next new_env entries in
         ((id, untrusted_value) :: bindings, final_entries)
     | ModuleTrustLet(id, expr, next) ->
         let value = eval expr env in
-        let trusted_value = validateTrustedBinding value in     (* Same as TrustLet *)
+        let trusted_value = validateTrustedBinding value in   
         let new_env = bind env id trusted_value in
         let (bindings, final_entries) = eval_module_content next new_env entries in
         ((id, trusted_value) :: bindings, final_entries)
@@ -458,7 +458,6 @@ and eval (e:exp) (s:evT env) : evT =
                 TrustClosure(new_signature, body, new_env)
          | _ -> raise (TrustViolation "Not a function"))
 
-    (* Trust-specific constructs *)
     | TrustLet(i, e, ebody) ->
         let value = eval e s in
         let validated_value = validateTrustedBinding value in
@@ -521,7 +520,6 @@ and eval (e:exp) (s:evT env) : evT =
                  (* Create a deep copy of the accessed value *)
                  let copied_value = deep_copy_value accessed_value s in
                  
-                 (* Log access information *)
                  if module_trust = Trust && accessed_trust = Trust then
                      Printf.printf "Trusted module method '%s' accessed (COPIED)\n" method_name
                  else if module_trust = Untrust then
@@ -548,18 +546,17 @@ and eval (e:exp) (s:evT env) : evT =
          | Plugin(plugin_body, plugin_env) ->
              (* Check if plugin body contains trusted functions *)
              if expressionMightContainTrustedFunctions plugin_body plugin_env then (
-                 Printf.printf "SECURITY VIOLATION BLOCKED: Attempt to pass trusted function to untrusted plugin\n";
+                 Printf.printf "Violation Blocked: Attempt to pass trusted function to untrusted plugin\n";
                  raise (SecurityError "Cannot pass trusted functions to untrusted plugins")
              ) else (
                  
-                 (* Evaluate function and arguments in current environment *)
                  let func_value = eval func_expr s in
                  let args_value = eval args_expr s in
                  
                  (* Check the evaluated function is not trusted *)
                  if containsTrustedFunctions func_value then (
-                     Printf.printf "RUNTIME SECURITY VIOLATION BLOCKED: Evaluated function is trusted\n";
-                     raise (SecurityError "Runtime check: Cannot execute trusted functions in untrusted plugins")
+                     Printf.printf "Violation Blocked: Evaluated function is trusted\n";
+                     raise (SecurityError "Cannot execute trusted functions in untrusted plugins")
                  ) else (
                      Printf.printf "Function is untrusted, safe to execute in Plugin\n";
                      
