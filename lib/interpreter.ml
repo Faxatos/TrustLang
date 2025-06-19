@@ -19,8 +19,15 @@ let rec bind_params (env: evT env) (params: trust_param list) (args: evT list) :
     match (params, args) with
     | ([], []) -> env
     | (p::ps, a::as_) -> 
-        let promoted_arg = promoteTrust p.param_trust a in
-        let new_env = bind env p.param_name promoted_arg in
+        (* For TrustFun parameters, validate trust levels *)
+        let validated_arg = 
+            match p.param_trust with
+            | Trust -> 
+                if getTrustLevel a = Trust then a
+                else raise (TrustViolation ("Parameter " ^ p.param_name ^ " requires trusted argument"))
+            | Untrust -> a
+        in
+        let new_env = bind env p.param_name validated_arg in
         bind_params new_env ps as_
     | _ -> raise (ParameterError "Parameter count mismatch")
 
@@ -152,12 +159,9 @@ let str_concat(x, y) =
 
 let handle_validation_result validation_result value = 
     match validation_result with
-    | Bool(true, Untrust) ->
-        promoteTrust Trust value
-    | Bool(false, Untrust) ->
-        raise (SecurityError "Custom validation failed")
-    | _ ->
-        raise (TrustViolation "Validation function should return untrusted value, since it's handling untrusted values")
+    | Bool(true, _) -> promoteTrust value
+    | Bool(false, _) -> raise (SecurityError "Custom validation failed")
+    | _ -> raise (TrustViolation "Validation function must return a boolean")
 
 let downgrade_untrusted_result (func_trust: trust_level) (result: evT) : evT =
     match func_trust with
@@ -198,17 +202,18 @@ and eval_match_cases (value: evT) (cases: match_case list) (env: evT env) : evT 
 
 and eval_module_content (content: module_content) (env: evT env) (entries: ide list) : (ide * evT) list * ide list =
     match content with
-    | ModuleLet(id, trust_level, expr, next) ->
+    | ModuleLet(id, expr, next) ->
         let value = eval expr env in
-        let promoted_value = promoteTrust trust_level value in
-        let new_env = bind env id promoted_value in
+        let untrusted_value = enforceUntrustedBinding value in  (* Same as Let *)
+        let new_env = bind env id untrusted_value in
         let (bindings, final_entries) = eval_module_content next new_env entries in
-        ((id, promoted_value) :: bindings, final_entries)
-    | ModuleFun(id, signature, body, next) ->
-        let func_value = TrustClosure(signature, body, env) in
-        let new_env = bind env id func_value in
+        ((id, untrusted_value) :: bindings, final_entries)
+    | ModuleTrustLet(id, expr, next) ->
+        let value = eval expr env in
+        let trusted_value = validateTrustedBinding value in     (* Same as TrustLet *)
+        let new_env = bind env id trusted_value in
         let (bindings, final_entries) = eval_module_content next new_env entries in
-        ((id, func_value) :: bindings, final_entries)
+        ((id, trusted_value) :: bindings, final_entries)
     | ModuleEntry(id, next) ->
         let (bindings, final_entries) = eval_module_content next env (id :: entries) in
         (bindings, final_entries)
@@ -243,7 +248,10 @@ and eval (e:exp) (s:evT env) : evT =
          | Bool(false, _) -> eval e3 s
          | _ -> raise (TrustViolation "If condition must be boolean"))
     
-    | Let(i, e, ebody) -> eval ebody (bind s i (eval e s))
+    | Let(i, e, ebody) ->
+        let value = eval e s in
+        let untrusted_value = enforceUntrustedBinding value in
+        eval ebody (bind s i untrusted_value)
     | Fun(arg, ebody) -> Closure(arg, ebody ,s , Untrust)
     | TrustFun(signature, body) -> TrustClosure(signature, body, s)
     | Letrec(f, arg, fBody, leBody) ->
@@ -276,7 +284,13 @@ and eval (e:exp) (s:evT env) : evT =
                 else
                     let new_env = bind_params env params args in
                     let result = eval body new_env in
-                    promoteTrust signature.return_trust result
+                    if signature.return_trust = Trust then
+                        (match result with
+                         | Int(v, _) -> Int(v, Trust)
+                         | Bool(v, _) -> Bool(v, Trust)
+                         | String(v, _) -> String(v, Trust)
+                         | _ -> result)
+                    else result
              else
                 (* Multiple parameters: return a new closure for partial application *)
                 let new_signature = {
@@ -288,31 +302,23 @@ and eval (e:exp) (s:evT env) : evT =
          | _ -> raise (TrustViolation "Not a function"))
 
     (* Trust-specific constructs *)
-    | TrustLet(i, trust_level, e, ebody) ->
+    | TrustLet(i, e, ebody) ->
         let value = eval e s in
-        (* Check if it's trying to promote an untrusted function *)
-        (match (trust_level, value) with
-        | (Trust, Closure(_, _, _, Untrust)) ->
-            raise (SecurityError ("Cannot promote untrusted function '" ^ i ^ "' to trusted level"))
-        | (Trust, RecClosure(_, _, _, _, Untrust)) ->
-            raise (SecurityError ("Cannot promote untrusted recursive function '" ^ i ^ "' to trusted level"))
-        | _ -> 
-            let promoted_value = promoteTrust trust_level value in
-            eval ebody (bind s i promoted_value))
+        let validated_value = validateTrustedBinding value in
+        eval ebody (bind s i validated_value)
 
     | Validate(e) ->
         let value = eval e s in
-        if getTrustLevel value = Trust then value
-        else
-            (match value with
-            | String(content, Untrust) ->
-                if is_safe_content content then String(content, Trust)
-                else raise (SecurityError "Validation failed: unsafe content")
-            | Int(v, Untrust) ->
-                if v >= 0 then Int(v, Trust)
-                else raise (SecurityError "Validation failed: negative integer")
-            | Bool(v, Untrust) -> Bool(v, Trust)
-            | _ -> raise (TrustViolation "Cannot validate already trusted or non-validatable data"))
+        (match value with
+         | String(content, Untrust) ->
+             if is_safe_content content then promoteTrust value
+             else raise (SecurityError "Validation failed: unsafe content")
+         | Int(v, Untrust) ->
+             if v >= 0 then promoteTrust value
+             else raise (SecurityError "Validation failed: negative integer")
+         | Bool(_, Untrust) -> promoteTrust value
+         | _ -> raise (TrustViolation "Cannot validate already trusted or non-validatable data"))
+
     
     | ValidateWith(val_func_expr, value_expr) -> (
         let value = eval value_expr s in
@@ -375,7 +381,6 @@ and eval (e:exp) (s:evT env) : evT =
                  Printf.printf "SECURITY VIOLATION BLOCKED: Attempt to pass trusted function to untrusted plugin\n";
                  raise (SecurityError "Cannot pass trusted functions to untrusted plugins")
              ) else (
-                 Printf.printf "No trusted functions detected in plugin parameters\n";
                  
                  (* Evaluate function and arguments in current environment *)
                  let func_value = eval func_expr s in

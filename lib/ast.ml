@@ -62,7 +62,7 @@ type exp =
     | StrLength of exp
     | StrConcat of exp * exp
     (* Trust primitives *)
-    | TrustLet of ide * trust_level * exp * exp
+    | TrustLet of ide  * exp * exp
     | TrustFun of trust_signature * exp
     | Validate of exp
     | ValidateWith of exp * exp
@@ -82,8 +82,8 @@ and match_case = pattern * exp
 
 (* Module content structure *)
 and module_content = 
-    | ModuleLet of ide * trust_level * exp * module_content (* Explicit trust level required *)
-    | ModuleFun of ide * trust_signature * exp * module_content
+    | ModuleLet of ide * exp * module_content          (* Always untrusted *)
+    | ModuleTrustLet of ide * exp * module_content     (* Always trusted *)
     | ModuleEntry of ide * module_content
     | ModuleEnd
 
