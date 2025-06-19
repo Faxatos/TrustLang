@@ -180,6 +180,163 @@ let downgrade_untrusted_result (func_trust: trust_level) (result: evT) : evT =
          | _ -> result)
     | Trust -> result (* Trusted functions can return trusted results *)
 
+(* Deep copy function for evT values to prevent reference sharing *)
+let rec deep_copy_value (value: evT) (original_env: evT env) : evT =
+    match value with
+    (* Basic data types - create new instances *)
+    | Int(v, t) -> Int(v, t)
+    | Bool(v, t) -> Bool(v, t)  
+    | String(v, t) -> String(v, t)
+    
+    (* Function types - create new closures with copied environments *)
+    | Closure(param, body, env, trust) ->
+        let copied_env = copy_closure_environment env body original_env in
+        Closure(param, body, copied_env, trust)
+        
+    | RecClosure(fname, param, body, env, trust) ->
+        let copied_env = copy_closure_environment env body original_env in
+        RecClosure(fname, param, body, copied_env, trust)
+        
+    | TrustClosure(signature, body, env) ->
+        let copied_env = copy_closure_environment env body original_env in
+        TrustClosure(signature, body, copied_env)
+        
+    (* Module types - create new module with copied bindings *)
+    | Module(name, bindings, entries, env, trust) ->
+        let copied_bindings = List.map (fun (id, value) -> (id, deep_copy_value value original_env)) bindings in
+        let copied_env = copy_module_environment env original_env in
+        Module(name, copied_bindings, entries, copied_env, trust)
+        
+    (* Plugin types - create new plugin with copied environment *)  
+    | Plugin(expr, env) ->
+        let copied_env = copy_plugin_environment env expr original_env in
+        Plugin(expr, copied_env)
+        
+    | UnBound -> UnBound
+
+(* Copy environment for closures - only copy variables that might be accessed *)
+and copy_closure_environment (env: evT env) (body: exp) (fallback_env: evT env) : evT env =
+    let free_vars = get_free_variables body in
+    create_copied_env env free_vars fallback_env
+
+(* Copy environment for modules *)
+and copy_module_environment (env: evT env) (fallback_env: evT env) : evT env =
+    fun id -> 
+        let value = env id in
+        if value = UnBound then fallback_env id
+        else deep_copy_value value fallback_env
+
+(* Copy environment for plugins *)  
+and copy_plugin_environment (env: evT env) (expr: exp) (fallback_env: evT env) : evT env =
+    let free_vars = get_free_variables expr in
+    create_copied_env env free_vars fallback_env
+
+(* Create a new environment with copied values for specified variables *)
+and create_copied_env (source_env: evT env) (var_list: string list) (fallback_env: evT env) : evT env =
+    fun id ->
+        if List.mem id var_list then
+            let value = source_env id in
+            if value = UnBound then fallback_env id
+            else deep_copy_value value fallback_env
+        else fallback_env id
+
+(* Get free variables in an expression for selective environment copying *)
+and get_free_variables (expr: exp) : string list =
+    let rec collect_vars bound_vars acc = function
+        | EInt(_) | CstTrue | CstFalse | EString(_) -> acc
+        | Den(id) -> if List.mem id bound_vars then acc else id :: acc
+        
+        | Sum(e1, e2) | Diff(e1, e2) | Prod(e1, e2) | Div(e1, e2)
+        | Eq(e1, e2) | LessThan(e1, e2) | GreaterThan(e1, e2)
+        | And(e1, e2) | Or(e1, e2) | StrContains(e1, e2) | StrConcat(e1, e2) ->
+            let acc1 = collect_vars bound_vars acc e1 in
+            collect_vars bound_vars acc1 e2
+            
+        | IsZero(e) | Not(e) | StrLength(e) | Validate(e) ->
+            collect_vars bound_vars acc e
+            
+        | IfThenElse(cond, then_e, else_e) ->
+            let acc1 = collect_vars bound_vars acc cond in
+            let acc2 = collect_vars bound_vars acc1 then_e in
+            collect_vars bound_vars acc2 else_e
+            
+        | Let(id, e, body) | TrustLet(id, e, body) ->
+            let acc1 = collect_vars bound_vars acc e in
+            collect_vars (id :: bound_vars) acc1 body
+            
+        | Letrec(fname, param, fbody, body) ->
+            let new_bound = fname :: param :: bound_vars in
+            let acc1 = collect_vars new_bound acc fbody in
+            collect_vars (fname :: bound_vars) acc1 body
+            
+        | Fun(param, body) ->
+            collect_vars (param :: bound_vars) acc body
+            
+        | TrustFun(signature, body) ->
+            let param_names = List.map (fun p -> p.param_name) signature.params in
+            collect_vars (param_names @ bound_vars) acc body
+            
+        | Apply(func, arg) ->
+            let acc1 = collect_vars bound_vars acc func in
+            collect_vars bound_vars acc1 arg
+            
+        | ValidateWith(func, value) ->
+            let acc1 = collect_vars bound_vars acc func in
+            collect_vars bound_vars acc1 value
+            
+        | ModuleAccess(module_expr, _) ->
+            collect_vars bound_vars acc module_expr
+            
+        | Include(plugin_expr) ->
+            collect_vars bound_vars acc plugin_expr
+            
+        | Execute(plugin_expr, func_expr, args_expr) ->
+            let acc1 = collect_vars bound_vars acc plugin_expr in
+            let acc2 = collect_vars bound_vars acc1 func_expr in
+            collect_vars bound_vars acc2 args_expr
+            
+        | Assert(id, _) ->
+            if List.mem id bound_vars then acc else id :: acc
+            
+        | Match(expr, cases) ->
+            let acc1 = collect_vars bound_vars acc expr in
+            List.fold_left (fun acc_case (pattern, case_expr) ->
+                let pattern_vars = get_pattern_variables pattern in
+                collect_vars (pattern_vars @ bound_vars) acc_case case_expr
+            ) acc1 cases
+            
+        | Module(_, content, entries) ->
+            let acc1 = collect_module_vars bound_vars acc content in
+            List.fold_left (collect_vars bound_vars) acc1 entries
+            
+    and collect_module_vars bound_vars acc = function
+        | ModuleLet(id, expr, next) | ModuleTrustLet(id, expr, next) ->
+            let acc1 = collect_vars bound_vars acc expr in
+            collect_module_vars (id :: bound_vars) acc1 next
+        | ModuleEntry(_, next) ->
+            collect_module_vars bound_vars acc next
+        | ModuleEnd -> acc
+            
+    and get_pattern_variables = function
+        | PVar(id) -> [id]
+        | PConst(_) | PWildcard -> []
+    in
+    
+    let vars = collect_vars [] [] expr in
+    List.sort_uniq String.compare vars
+
+(* Helper function to get a unique identifier for values (for debugging) *)
+let get_value_identifier = function
+    | Int(v, t) -> Printf.sprintf "Int(%d,%s)@%d" v (if t = Trust then "T" else "U") (Hashtbl.hash v)
+    | Bool(v, t) -> Printf.sprintf "Bool(%b,%s)@%d" v (if t = Trust then "T" else "U") (Hashtbl.hash v)
+    | String(v, t) -> Printf.sprintf "String(%s,%s)@%d" (String.sub v 0 (min 10 (String.length v))) (if t = Trust then "T" else "U") (Hashtbl.hash v)
+    | Closure(_, _, _, t) -> Printf.sprintf "Closure(%s)@%d" (if t = Trust then "T" else "U") (Random.int 10000)
+    | RecClosure(_, _, _, _, t) -> Printf.sprintf "RecClosure(%s)@%d" (if t = Trust then "T" else "U") (Random.int 10000)
+    | TrustClosure(_, _, _) -> Printf.sprintf "TrustClosure@%d" (Random.int 10000)
+    | Module(name, _, _, _, t) -> Printf.sprintf "Module(%s,%s)@%d" name (if t = Trust then "T" else "U") (Random.int 10000)
+    | Plugin(_, _) -> Printf.sprintf "Plugin@%d" (Random.int 10000)
+    | UnBound -> "UnBound"
+
 let rec match_pattern (pattern: pattern) (value: evT) (env: evT env) : evT env option =
     match pattern with
     | PVar(id) -> Some (bind env id value)
@@ -355,19 +512,31 @@ and eval (e:exp) (s:evT env) : evT =
 
     | ModuleAccess(module_expr, method_name) ->
         (match eval module_expr s with
-         | Module(_, bindings, entries, _, module_trust) ->
-             if List.mem method_name entries then
-                 (try 
-                     let accessed_value = List.assoc method_name bindings in
-                     let accessed_trust = getTrustLevel accessed_value in
-                     if module_trust = Trust && accessed_trust = Trust then
-                         Printf.printf "Trusted module method '%s' accessed\n" method_name
-                     else if module_trust = Untrust then
-                         Printf.printf "Untrusted module method '%s' accessed\n" method_name;
-                     accessed_value
-                  with Not_found -> raise (ModuleError ("Method " ^ method_name ^ " not found in module")))
-             else raise (SecurityError ("Method " ^ method_name ^ " is not an entry point"))
-         | _ -> raise (ModuleError "Not a module"))
+     | Module(module_name, bindings, entries, _, module_trust) ->
+         if List.mem method_name entries then
+             (try 
+                 let accessed_value = List.assoc method_name bindings in
+                 let accessed_trust = getTrustLevel accessed_value in
+                 
+                 (* Create a deep copy of the accessed value *)
+                 let copied_value = deep_copy_value accessed_value s in
+                 
+                 (* Log access information *)
+                 if module_trust = Trust && accessed_trust = Trust then
+                     Printf.printf "Trusted module method '%s' accessed (COPIED)\n" method_name
+                 else if module_trust = Untrust then
+                     Printf.printf "Untrusted module method '%s' accessed (COPIED)\n" method_name;
+                     
+                 Printf.printf "Original value address: %s, Copied value address: %s\n"
+                     (get_value_identifier accessed_value)
+                     (get_value_identifier copied_value);
+                     
+                 copied_value
+              with Not_found -> 
+                 raise (ModuleError ("Method " ^ method_name ^ " not found in module " ^ module_name)))
+         else 
+             raise (SecurityError ("Method " ^ method_name ^ " is not an entry point in module " ^ module_name))
+     | _ -> raise (ModuleError "Not a module"))
 
     | Include(plugin_expr) ->
         (* Store the plugin expression with current env *)
